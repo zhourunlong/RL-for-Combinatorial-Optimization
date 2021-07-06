@@ -12,7 +12,7 @@ class CSPEnv():
         if reset_perm:
             self.v = torch.zeros((self.bs, self.n), device="cuda")
             for i in range(self.bs):
-                self.v[i] = torch.randperm(self.n)
+                self.v[i] = torch.randperm(self.n, device="cuda")
         self.premax = torch.zeros((self.bs,), device="cuda")
         self.active = torch.ones((self.bs,), device="cuda")
     

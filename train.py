@@ -50,7 +50,7 @@ if __name__ == "__main__":
     shutil.copy("train.py", os.path.join(logdir, "code"))
 
     env = CSPEnv(args.n, args.batch_size)
-    agent = NaiveAgent(args.n)
+    agent = NaiveAgent(args.n, args.lr)
 
     running_reward, running_loss = 0, 0
 
@@ -79,3 +79,5 @@ if __name__ == "__main__":
             if (episode + 1) % args.save_episode == 0:
                 savepath = os.path.join(logdir, "models/%d.pt" % (episode))
                 torch.save(agent, savepath)
+
+    #env.print_v()
