@@ -11,7 +11,7 @@ import random
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch-size", default=1, type=int)
-    parser.add_argument("--lr", default=1e-2, type=float)
+    parser.add_argument("--lr", default=0.1, type=float)
     parser.add_argument("--num-episode", default=10000, type=int)
     parser.add_argument("--n", default=100, type=int)
     parser.add_argument("--save-episode", default=1000, type=int)
@@ -72,7 +72,7 @@ if __name__ == "__main__":
             #running_reward += reward
             #running_loss += loss
         
-            pbar.set_description("Episode: %d, Reward: %0.4f, Loss: %0.4f" % (episode, reward, loss))
+            pbar.set_description("Episode: %8d, Reward: %2.4f, Loss: %2.4f" % (episode, reward, loss))
 
             #logging.info("Episode: %d, Reward: %0.4f, Loss: %0.4f" % (episode, np.mean(running_reward), np.mean(running_loss)))
 

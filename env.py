@@ -27,7 +27,7 @@ class CSPEnv():
         raw_reward = 2 * torch.eq(self.v[:, self.i], self.max).float() - 1
         self.i += 1
         if self.i == self.n:
-            return self.active * raw_reward
+            return self.active * ((1 - action) * raw_reward - action)
         ret = (1 - action) * self.active * raw_reward
         self.active *= action
         return ret
