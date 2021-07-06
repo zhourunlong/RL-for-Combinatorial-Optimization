@@ -52,7 +52,7 @@ if __name__ == "__main__":
     env = CSPEnv(args.n, args.batch_size)
     agent = NaiveAgent(args.n, args.lr)
 
-    running_reward, running_loss = 0, 0
+    #running_reward, running_loss = 0, 0
 
     with tqdm(range(args.num_episode), desc="Training") as pbar:
         for episode in pbar:
@@ -69,10 +69,10 @@ if __name__ == "__main__":
                 entropies.append(entropy)
             
             reward, loss = agent.update_param(rewards, log_probs, entropies)
-            running_reward += reward
-            running_loss += loss
+            #running_reward += reward
+            #running_loss += loss
         
-            pbar.set_description("Episode: %d, Reward: %0.4f, Loss: %0.4f" % (episode, running_reward / (episode + 1), running_loss / (episode + 1)))
+            pbar.set_description("Episode: %d, Reward: %0.4f, Loss: %0.4f" % (episode, reward, loss))
 
             #logging.info("Episode: %d, Reward: %0.4f, Loss: %0.4f" % (episode, np.mean(running_reward), np.mean(running_loss)))
 

@@ -1,24 +1,26 @@
-from numpy import RankWarning
 import torch
 
 class CSPEnv():
     def __init__(self, n, bs):
         self.n = n
         self.bs = bs
-        self.max = torch.full((self.bs,), n - 1, device="cuda")
+        self.max = torch.full((bs,), n - 1, device="cuda")
     
     def reset(self, reset_perm):
         self.i = 0
         if reset_perm:
             self.v = torch.zeros((self.bs, self.n), device="cuda")
-            for i in range(self.bs):
-                self.v[i] = torch.randperm(self.n, device="cuda")
+            batch_axis = torch.arange(self.bs, dtype=int, device="cuda")
+            for i in range(1, self.n):
+                pos = torch.randint(i + 1, (self.bs,), device="cuda")
+                self.v[:, i] = self.v[batch_axis, pos]
+                self.v[batch_axis, pos] = i
         self.premax = torch.zeros((self.bs,), device="cuda")
         self.active = torch.ones((self.bs,), device="cuda")
     
     def get_state(self):
         self.premax = torch.max(self.premax, self.v[:, self.i])
-        return [torch.full((self.bs,), (self.i + 1) / self.n), torch.eq(self.v[:, self.i], self.premax).int()]
+        return [torch.full((self.bs,), (self.i + 1) / self.n, device="cuda"), torch.eq(self.v[:, self.i], self.premax).int()]
     
     def get_reward(self, action):
         action = action.float()
