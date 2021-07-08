@@ -1,5 +1,6 @@
 from agent import *
 from env import *
+from visualize import *
 import argparse
 import os, sys, logging, time
 from tqdm import tqdm
@@ -37,13 +38,16 @@ if __name__ == "__main__":
     os.makedirs(logdir, exist_ok=True)
     os.makedirs(os.path.join(logdir, "models"), exist_ok=True)
     os.makedirs(os.path.join(logdir, "code"), exist_ok=True)
-    print("Experiment dir : {}".format(logdir))
+    os.makedirs(os.path.join(logdir, "results"), exist_ok=True)
+    print("Experiment dir: {}".format(logdir))
 
+    '''
     log_format = '%(asctime)s %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format=log_format, datefmt='%m/%d %I:%M:%S %p')
     fh = logging.FileHandler(os.path.join(logdir, 'log.txt'))
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
+    '''
 
     shutil.copy("agent.py", os.path.join(logdir, "code"))
     shutil.copy("env.py", os.path.join(logdir, "code"))
@@ -52,7 +56,7 @@ if __name__ == "__main__":
     env = CSPEnv(args.n, args.batch_size)
     agent = NaiveAgent(args.n, args.lr)
 
-    #running_reward, running_loss = 0, 0
+    running_reward, running_loss = [], []
 
     with tqdm(range(args.num_episode), desc="Training") as pbar:
         for episode in pbar:
@@ -69,15 +73,17 @@ if __name__ == "__main__":
                 entropies.append(entropy)
             
             reward, loss = agent.update_param(rewards, log_probs, entropies)
-            #running_reward += reward
-            #running_loss += loss
+            running_reward.append(reward)
+            running_loss.append(loss)
         
             pbar.set_description("Episode: %8d, Reward: %2.4f, Loss: %2.4f" % (episode, reward, loss))
 
             #logging.info("Episode: %d, Reward: %0.4f, Loss: %0.4f" % (episode, np.mean(running_reward), np.mean(running_loss)))
 
             if (episode + 1) % args.save_episode == 0:
-                savepath = os.path.join(logdir, "models/%d.pt" % (episode))
+                savepath = os.path.join(logdir, "models/%08d.pt" % (episode))
                 torch.save(agent, savepath)
+                plot_prob_fig(agent, os.path.join(logdir, "results/visualize%08d.jpg" % (episode)))
+                plot_rl_fig(running_reward, running_loss, os.path.join(logdir, "results/curve.jpg"))
 
     #env.print_v()

@@ -13,25 +13,15 @@ def get_args():
     parser.add_argument("--model-dir", default=None, type=str)
     return parser.parse_args()
 
-if __name__ == "__main__":
-    args = get_args()
-
-    agent = torch.load(args.model_dir)
-    #print(agent.theta)
-
-    max_acc, non_max_acc = [], []
+def plot_prob_fig(agent, pic_dir):
+    max_acc = []
     for i in range(agent.n):
-        max_acc.append(F.softmax(agent.theta[i, 1], dim=0)[0])
-        non_max_acc.append(F.softmax(agent.theta[i, 0], dim=0)[0])
-
-    #print(max_acc)
-    #print(non_max_acc)
+        max_acc.append(F.softmax(agent.theta[i, 1], dim=-1)[0])
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
     x = np.array([(_ + 1) / agent.n for _ in range(agent.n)])
     ax.plot(x, np.array(max_acc), label="Agent")
-    #ax.plot(x, np.array(non_max_acc), label="not prefix max")
 
     x2 = np.array([1 / agent.n, np.exp(-1), np.exp(-1), 1])
     y2 = np.array([0, 0, 1, 1])
@@ -42,5 +32,24 @@ if __name__ == "__main__":
     ax.set_ylabel("Pr[accept]")
     ax.legend(loc="best")
 
-    plt.savefig('visualize.png')
-    #plt.show()
+    plt.savefig(pic_dir)
+
+def plot_rl_fig(reward, loss, pic_dir):
+    fig, ax1 = plt.subplots(figsize=(20, 10))
+    ax2 = ax1.twinx()
+
+    x = np.array([_ for _ in range(len(reward))])
+    line1, = ax1.plot(x, reward, "g-", label="Reward")
+    line2, = ax2.plot(x, loss, "b--", label="Loss")
+
+    plt.title("Plot of training curve")
+    ax1.set_xlabel("Episode")
+    plt.legend((line1, line2), ("Reward", "Loss"), loc="best")
+
+    plt.savefig(pic_dir)
+
+if __name__ == "__main__":
+    args = get_args()
+    agent = torch.load(args.model_dir)
+    plot_prob_fig(agent, "visualize.jpg")
+    #plot_rl_fig([0.5, 0.6, 0.7], [-0.1, -0.2, -0.3], "curve.jpg")
