@@ -14,16 +14,16 @@ def get_args():
     return parser.parse_args()
 
 def plot_prob_fig(agent, pic_dir):
-    max_acc = []
-    for i in range(agent.n):
-        max_acc.append(F.softmax(agent.theta[i, 1], dim=-1)[0])
+    states = [torch.arange(1, agent.n + 1, dtype=float, device="cuda") / agent.n, torch.ones((agent.n,), dtype=int, device="cuda")]
+    with torch.no_grad():
+        max_acc = agent.get_accept_prob(states).cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
     x = np.array([(_ + 1) / agent.n for _ in range(agent.n)])
     ax.plot(x, np.array(max_acc), label="Agent")
 
-    x2 = np.array([1 / agent.n, np.exp(-1), np.exp(-1), 1])
+    x2 = np.array([0, np.exp(-1), np.exp(-1), 1])
     y2 = np.array([0, 0, 1, 1])
     ax.plot(x2, y2, label="Optimal")
 
@@ -33,6 +33,7 @@ def plot_prob_fig(agent, pic_dir):
     ax.legend(loc="best")
 
     plt.savefig(pic_dir)
+    plt.close()
 
 def plot_rl_fig(reward, loss, pic_dir):
     fig, ax1 = plt.subplots(figsize=(20, 10))
@@ -47,6 +48,7 @@ def plot_rl_fig(reward, loss, pic_dir):
     plt.legend((line1, line2), ("Reward", "Loss"), loc="best")
 
     plt.savefig(pic_dir)
+    plt.close()
 
 if __name__ == "__main__":
     args = get_args()

@@ -9,40 +9,50 @@ from torch.autograd import Variable
 class NaiveAgent():
     def __init__(self, n, lr=1e-3):
         self.n = n
-        self.theta = Variable(torch.zeros((n, 2, 2))).cuda()
+        self.theta = Variable(torch.zeros((n, 2))).cuda()
         self.theta.requires_grad = True
         self.lr = lr
 
     def get_action(self, state):
         i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
-        probs = F.softmax(self.theta[i, xi], dim=-1)
+        probs = (1 - 1 / (1 + self.theta[i, xi].exp())).view(-1, 1)
+        probs = torch.cat([probs, 1 - probs], dim=-1)
 
         action = probs.multinomial(1)
         log_prob = probs.gather(1, action).log().view(-1,)
         entropy = -(probs * probs.log()).sum(-1)
 
         return action.view(-1,), log_prob, entropy
-    
+        
     def update_param(self, rewards, log_probs, entropies):
-        #print(rewards, log_probs)
-
         rewards.reverse()
         log_probs.reverse()
         
         rewards = torch.stack(rewards)
         log_probs = torch.stack(log_probs)
 
+        # https://zhuanlan.zhihu.com/p/78684058
+        '''
+        sum_log_probs = log_probs.sum(0).mean()
+        grad_slp = autograd.grad(outputs=sum_log_probs, inputs=self.theta, retain_graph=True, allow_unused=True)[0]
+        grad_norm_sq = (grad_slp * grad_slp).sum()
+        baseline =  / grad_norm_sq
+        '''
+        
         rewards = rewards.cumsum(0)
-        loss = -(log_probs * rewards).sum(0).mean()
+        baseline = rewards[-1].mean()
+        loss = -(log_probs * (rewards - baseline)).sum(0).mean()
 
         loss = loss / len(rewards)
 
-        grads = autograd.grad(outputs=loss, inputs=self.theta, allow_unused=True)
-        self.theta = self.theta - self.lr * grads[0]
-
-        #print(loss, grads[0])
+        grads = autograd.grad(outputs=loss, inputs=self.theta, allow_unused=True)[0]
+        self.theta = self.theta - self.lr * grads
 
         return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
+
+    def get_accept_prob(self, state):
+        i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
+        return 1 - 1 / (1 + self.theta[i, xi].exp())
 
 if __name__ == "__main__":
     agent = NaiveAgent(3)

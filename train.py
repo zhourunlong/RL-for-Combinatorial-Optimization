@@ -52,6 +52,7 @@ if __name__ == "__main__":
     shutil.copy("agent.py", os.path.join(logdir, "code"))
     shutil.copy("env.py", os.path.join(logdir, "code"))
     shutil.copy("train.py", os.path.join(logdir, "code"))
+    shutil.copy("visualize.py", os.path.join(logdir, "code"))
 
     env = CSPEnv(args.n, args.batch_size)
     agent = NaiveAgent(args.n, args.lr)
@@ -76,9 +77,9 @@ if __name__ == "__main__":
             running_reward.append(reward)
             running_loss.append(loss)
         
-            pbar.set_description("Episode: %8d, Reward: %2.4f, Loss: %2.4f" % (episode, reward, loss))
+            pbar.set_description("Epi: %8d, R: %2.4f, L: %2.4f" % (episode, reward, loss))
 
-            #logging.info("Episode: %d, Reward: %0.4f, Loss: %0.4f" % (episode, np.mean(running_reward), np.mean(running_loss)))
+            #logging.info("Epi: %d, R: %0.4f, L: %0.4f" % (episode, np.mean(running_reward), np.mean(running_loss)))
 
             if (episode + 1) % args.save_episode == 0:
                 savepath = os.path.join(logdir, "models/%08d.pt" % (episode))
