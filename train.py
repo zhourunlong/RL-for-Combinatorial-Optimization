@@ -64,18 +64,19 @@ if __name__ == "__main__":
         for episode in pbar:
             env.reset(True)
 
-            states, rewards, log_probs, entropies = [], [], [], []
+            states, rewards, probs, log_probs, entropies = [], [], [], [], []
             for step in range(args.n):
                 state = env.get_state()
-                action, log_prob, entropy = agent.get_action(state)
+                action, prob, log_prob, entropy = agent.get_action(state)
                 reward = env.get_reward(action)
                 
                 states.append(state)
                 rewards.append(reward)
+                probs.append(prob)
                 log_probs.append(log_prob)
                 entropies.append(entropy)
             
-            reward, loss = agent.update_param(states, rewards, log_probs, entropies)
+            reward, loss = agent.update_param(states, rewards, probs, log_probs, entropies)
             running_reward.append(reward)
             running_loss.append(loss)
         

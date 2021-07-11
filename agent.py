@@ -24,7 +24,7 @@ class NaiveAgent():
 
         return action.view(-1,), log_prob, entropy
         
-    def update_param(self, states, rewards, log_probs, entropies):
+    def update_param(self, states, rewards, probs, log_probs, entropies):
         rewards.reverse()
         log_probs.reverse()
         
@@ -63,25 +63,31 @@ class NPGAgent():
 
     def get_action(self, state):
         i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
-        probs = (1 / (1 + self.theta[i, xi].exp())).view(-1, 1)
-        probs = torch.cat([1 - probs, probs], dim=-1)
+        params = torch.cat([self.theta[i, xi].view(-1, 1), torch.zeros_like(self.theta[i, xi].view(-1, 1))], dim=-1)
+        probs = F.softmax(params, dim=-1)
+        log_probs = F.log_softmax(params, dim=-1)
 
         action = probs.multinomial(1)
-        log_prob = probs.gather(1, action).log().view(-1,)
-        entropy = -(probs * probs.log()).sum(-1)
+        prob = probs.gather(1, action).view(-1,)
+        log_prob = log_probs.gather(1, action).view(-1,)
+        entropy = -(probs * log_probs).sum(-1)
 
-        return action.view(-1,), log_prob, entropy
+        return action.view(-1,), prob, log_prob, entropy
         
-    def update_param(self, states, rewards, log_probs, entropies):
+    def update_param(self, states, rewards, probs, log_probs, entropies):
         states.reverse()
         rewards.reverse()
+        probs.reverse()
         log_probs.reverse()
         
         rewards = torch.stack(rewards)
+        probs = torch.stack(probs)
         log_probs = torch.stack(log_probs)
         
         rewards = rewards.cumsum(0)
-        loss = -(log_probs * rewards).sum(0).mean()
+        baseline = rewards[-1].mean()
+        loss = -(log_probs * (rewards - baseline)).sum(0).mean()
+        loss = loss / len(rewards)
 
         n, bs = log_probs.shape
         F = torch.zeros(n * 2, device="cuda")
@@ -95,16 +101,16 @@ class NPGAgent():
         idx = 2 * _i + _xi
 
         with torch.no_grad():
-            F.index_add_(0, idx, (1 - log_probs.view(-1,).exp()) ** 2)
+            F.index_add_(0, idx, (1 - probs.view(-1,)) ** 2)
         F = F.view(n, 2) / (n * bs)
         F[F < 1e-5] = 1e9
         invF = 1 / F
 
-        loss = loss / len(rewards)
-
         grads = autograd.grad(outputs=loss, inputs=self.theta, allow_unused=True)[0]
         grads[torch.isnan(grads)] = 0
         self.theta = self.theta - self.lr * invF * grads
+
+        self.theta.clamp_(-20, 20)
 
         return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
 
