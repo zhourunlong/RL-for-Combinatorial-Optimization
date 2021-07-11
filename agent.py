@@ -64,7 +64,6 @@ class NPGAgent():
     def get_action(self, state):
         i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
         probs = (1 / (1 + self.theta[i, xi].exp())).view(-1, 1)
-        #print(probs)
         probs = torch.cat([1 - probs, probs], dim=-1)
 
         action = probs.multinomial(1)
@@ -98,7 +97,7 @@ class NPGAgent():
         with torch.no_grad():
             F.index_add_(0, idx, (1 - log_probs.view(-1,).exp()) ** 2)
         F = F.view(n, 2) / (n * bs)
-        F[F.abs() < 1e-5] = 1e9
+        F[F < 1e-5] = 1e9
         invF = 1 / F
 
         loss = loss / len(rewards)
@@ -106,7 +105,6 @@ class NPGAgent():
         grads = autograd.grad(outputs=loss, inputs=self.theta, allow_unused=True)[0]
         grads[torch.isnan(grads)] = 0
         self.theta = self.theta - self.lr * invF * grads
-        #print(invF, grads, self.theta)
 
         return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
 
