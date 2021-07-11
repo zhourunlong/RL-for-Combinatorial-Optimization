@@ -55,7 +55,8 @@ if __name__ == "__main__":
     shutil.copy("visualize.py", os.path.join(logdir, "code"))
 
     env = CSPEnv(args.n, args.batch_size)
-    agent = NaiveAgent(args.n, args.lr)
+    #agent = NaiveAgent(args.n, args.lr)
+    agent = NPGAgent(args.n, args.lr)
 
     running_reward, running_loss = [], []
 
@@ -63,17 +64,18 @@ if __name__ == "__main__":
         for episode in pbar:
             env.reset(True)
 
-            rewards, log_probs, entropies = [], [], []
+            states, rewards, log_probs, entropies = [], [], [], []
             for step in range(args.n):
                 state = env.get_state()
                 action, log_prob, entropy = agent.get_action(state)
                 reward = env.get_reward(action)
                 
+                states.append(state)
                 rewards.append(reward)
                 log_probs.append(log_prob)
                 entropies.append(entropy)
             
-            reward, loss = agent.update_param(rewards, log_probs, entropies)
+            reward, loss = agent.update_param(states, rewards, log_probs, entropies)
             running_reward.append(reward)
             running_loss.append(loss)
         
