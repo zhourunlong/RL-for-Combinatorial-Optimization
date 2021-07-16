@@ -14,14 +14,17 @@ def get_args():
     return parser.parse_args()
 
 def plot_prob_fig(agent, pic_dir):
-    states = [torch.arange(1, agent.n + 1, dtype=float, device="cuda") / agent.n, torch.ones((agent.n,), dtype=int, device="cuda")]
+    states_1 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.ones((agent.n,), device="cuda")]
+    states_0 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.zeros((agent.n,), device="cuda")]
     with torch.no_grad():
-        max_acc = agent.get_accept_prob(states).cpu().numpy()
+        max_acc = agent.get_accept_prob(states_1).cpu().numpy()
+        non_max_acc = agent.get_accept_prob(states_0).cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
     x = np.array([(_ + 1) / agent.n for _ in range(agent.n)])
     ax.plot(x, np.array(max_acc), label="Agent")
+    ax.plot(x, np.array(non_max_acc), label="Agent (not prefix max)")
 
     x2 = np.array([0, np.exp(-1), np.exp(-1), 1])
     y2 = np.array([0, 0, 1, 1])

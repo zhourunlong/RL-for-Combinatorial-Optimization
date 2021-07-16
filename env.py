@@ -20,7 +20,7 @@ class CSPEnv():
     
     def get_state(self):
         self.premax = torch.max(self.premax, self.v[:, self.i])
-        return [torch.full((self.bs,), (self.i + 1) / self.n, device="cuda"), torch.eq(self.v[:, self.i], self.premax).int()]
+        return [torch.full((self.bs,), (self.i + 1) / self.n, device="cuda"), torch.eq(self.v[:, self.i], self.premax).float()]
     
     def get_reward(self, action):
         action = action.float()

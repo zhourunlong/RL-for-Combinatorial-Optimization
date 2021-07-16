@@ -17,6 +17,7 @@ def get_args():
     parser.add_argument("--n", default=100, type=int)
     parser.add_argument("--save-episode", default=1000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
+    parser.add_argument("--regular-lambda", default=0.0001, type=float)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -55,8 +56,7 @@ if __name__ == "__main__":
     shutil.copy("visualize.py", os.path.join(logdir, "code"))
 
     env = CSPEnv(args.n, args.batch_size)
-    #agent = NaiveAgent(args.n, args.lr)
-    agent = NPGAgent(args.n, args.lr)
+    agent = NeuralNetworkAgent(args.n, args.lr, args.regular_lambda)
 
     running_reward, running_loss = [], []
 

@@ -6,60 +6,13 @@ import torch.optim as optim
 from torch import autograd
 from torch.autograd import Variable
 
-class NaiveAgent():
-    def __init__(self, n, lr=1e-3):
+class TabularSoftmaxAgent():
+    def __init__(self, n, lr=1e-3, regular_lambda=1e-4):
         self.n = n
         self.theta = Variable(torch.zeros((n, 2))).cuda()
         self.theta.requires_grad = True
         self.lr = lr
-
-    def get_action(self, state):
-        i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
-        probs = (1 - 1 / (1 + self.theta[i, xi].exp())).view(-1, 1)
-        probs = torch.cat([probs, 1 - probs], dim=-1)
-
-        action = probs.multinomial(1)
-        log_prob = probs.gather(1, action).log().view(-1,)
-        entropy = -(probs * probs.log()).sum(-1)
-
-        return action.view(-1,), log_prob, entropy
-        
-    def update_param(self, states, rewards, probs, log_probs, entropies):
-        rewards.reverse()
-        log_probs.reverse()
-        
-        rewards = torch.stack(rewards)
-        log_probs = torch.stack(log_probs)
-
-        # https://zhuanlan.zhihu.com/p/78684058
-        '''
-        sum_log_probs = log_probs.sum(0).mean()
-        grad_slp = autograd.grad(outputs=sum_log_probs, inputs=self.theta, retain_graph=True, allow_unused=True)[0]
-        grad_norm_sq = (grad_slp * grad_slp).sum()
-        baseline =  / grad_norm_sq
-        '''
-        
-        rewards = rewards.cumsum(0)
-        baseline = rewards[-1].mean()
-        loss = -(log_probs * (rewards - baseline)).sum(0).mean()
-
-        loss = loss / len(rewards)
-
-        grads = autograd.grad(outputs=loss, inputs=self.theta, allow_unused=True)[0]
-        self.theta = self.theta - self.lr * grads
-
-        return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
-
-    def get_accept_prob(self, state):
-        i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
-        return 1 - 1 / (1 + self.theta[i, xi].exp())
-
-class NPGAgent():
-    def __init__(self, n, lr=1e-3):
-        self.n = n
-        self.theta = Variable(torch.zeros((n, 2))).cuda()
-        self.theta.requires_grad = True
-        self.lr = lr
+        self.regular_lambda = regular_lambda
 
     def get_action(self, state):
         i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
@@ -79,15 +32,16 @@ class NPGAgent():
         rewards.reverse()
         probs.reverse()
         log_probs.reverse()
+        #entropies.reverse()
         
         rewards = torch.stack(rewards)
         probs = torch.stack(probs)
         log_probs = torch.stack(log_probs)
+        entropies = torch.stack(entropies)
         
         rewards = rewards.cumsum(0)
         baseline = rewards[-1].mean()
-        loss = -(log_probs * (rewards - baseline)).sum(0).mean()
-        loss = loss / len(rewards)
+        loss = -(log_probs * (rewards - baseline) + self.regular_lambda * entropies).mean()
 
         n, bs = log_probs.shape
         F = torch.zeros(n * 2, device="cuda")
@@ -110,13 +64,71 @@ class NPGAgent():
         grads[torch.isnan(grads)] = 0
         self.theta = self.theta - self.lr * invF * grads
 
-        self.theta.clamp_(-20, 20)
+        #self.theta.clamp_(-20, 20)
 
         return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
 
     def get_accept_prob(self, state):
-        i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
-        return 1 - 1 / (1 + self.theta[i, xi].exp())
+        with torch.no_grad():
+            i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
+            return 1 - 1 / (1 + self.theta[i, xi].exp())
+
+class NeuralNetworkAgent():
+    def __init__(self, n, lr=1e-3, regular_lambda=1e-4):
+        self.n = n
+        self.NN = nn.Sequential(
+            nn.Linear(2, 50),
+            nn.ReLU(),
+            nn.Linear(50, 50),
+            nn.ReLU(),
+            nn.Linear(50, 50),
+            nn.ReLU(),
+            nn.Linear(50, 2)
+        ).cuda()
+        self.optimizer = torch.optim.Adam(self.NN.parameters(), lr=lr)
+        self.regular_lambda = regular_lambda
+
+    def get_action(self, state):
+        inputs = torch.cat([state[0].view(-1, 1), state[1].view(-1, 1)], dim=-1)
+        params = self.NN(inputs)
+        probs = F.softmax(params, dim=-1)
+        log_probs = F.log_softmax(params, dim=-1)
+
+        action = probs.multinomial(1)
+        prob = probs.gather(1, action).view(-1,)
+        log_prob = log_probs.gather(1, action).view(-1,)
+        entropy = -(probs * log_probs).sum(-1)
+
+        return action.view(-1,), prob, log_prob, entropy
+        
+    def update_param(self, states, rewards, probs, log_probs, entropies):
+        states.reverse()
+        rewards.reverse()
+        probs.reverse()
+        log_probs.reverse()
+        #entropies.reverse()
+        
+        rewards = torch.stack(rewards)
+        probs = torch.stack(probs)
+        log_probs = torch.stack(log_probs)
+        entropies = torch.stack(entropies)
+        
+        rewards = rewards.cumsum(0)
+        baseline = rewards[-1].mean()
+        loss = -(log_probs * (rewards - baseline) + self.regular_lambda * entropies).mean()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
+
+    def get_accept_prob(self, state):
+        with torch.no_grad():
+            inputs = torch.cat([state[0].view(-1, 1), state[1].view(-1, 1)],    dim=-1)
+            params = self.NN(inputs)
+            probs = F.softmax(params, dim=-1)
+        return probs[:, 0].view(-1,)
 
 if __name__ == "__main__":
     agent = NaiveAgent(3)
