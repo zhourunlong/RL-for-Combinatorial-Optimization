@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch import autograd
 from torch.autograd import Variable
 
-class TabularSoftmaxAgent():
+class SoftmaxTabularAgent():
     def __init__(self, n, lr=1e-3, regular_lambda=1e-4):
         self.n = n
         self.theta = Variable(torch.zeros((n, 2))).cuda()
@@ -88,6 +88,9 @@ class NeuralNetworkAgent():
         self.optimizer = torch.optim.Adam(self.NN.parameters(), lr=lr)
         self.regular_lambda = regular_lambda
 
+    def update_n(self, n):
+        self.n = n
+
     def get_action(self, state):
         inputs = torch.cat([state[0].view(-1, 1), state[1].view(-1, 1)], dim=-1)
         params = self.NN(inputs)
@@ -129,6 +132,58 @@ class NeuralNetworkAgent():
             params = self.NN(inputs)
             probs = F.softmax(params, dim=-1)
         return probs[:, 0].view(-1,)
+
+'''
+class LogLinearAgent():
+    def __init__(self, n, lr=1e-3, regular_lambda=1e-4):
+        self.n = n
+        self.theta = Variable(torch.zeros((n, 2))).cuda()
+        self.theta.requires_grad = True
+        self.optimizer = torch.optim.Adam(self.NN.parameters(), lr=lr)
+        self.regular_lambda = regular_lambda
+
+    def get_action(self, state):
+        inputs = torch.cat([state[0].view(-1, 1), state[1].view(-1, 1)], dim=-1)
+        params = self.NN(inputs)
+        probs = F.softmax(params, dim=-1)
+        log_probs = F.log_softmax(params, dim=-1)
+
+        action = probs.multinomial(1)
+        prob = probs.gather(1, action).view(-1,)
+        log_prob = log_probs.gather(1, action).view(-1,)
+        entropy = -(probs * log_probs).sum(-1)
+
+        return action.view(-1,), prob, log_prob, entropy
+        
+    def update_param(self, states, rewards, probs, log_probs, entropies):
+        states.reverse()
+        rewards.reverse()
+        probs.reverse()
+        log_probs.reverse()
+        #entropies.reverse()
+        
+        rewards = torch.stack(rewards)
+        probs = torch.stack(probs)
+        log_probs = torch.stack(log_probs)
+        entropies = torch.stack(entropies)
+        
+        rewards = rewards.cumsum(0)
+        baseline = rewards[-1].mean()
+        loss = -(log_probs * (rewards - baseline) + self.regular_lambda * entropies).mean()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
+
+    def get_accept_prob(self, state):
+        with torch.no_grad():
+            inputs = torch.cat([state[0].view(-1, 1), state[1].view(-1, 1)],    dim=-1)
+            params = self.NN(inputs)
+            probs = F.softmax(params, dim=-1)
+        return probs[:, 0].view(-1,)
+'''
 
 if __name__ == "__main__":
     agent = NaiveAgent(3)

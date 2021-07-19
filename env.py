@@ -6,8 +6,11 @@ class CSPEnv():
         self.bs = bs
         self.max = torch.full((bs,), n - 1, device="cuda")
     
-    def reset(self, reset_perm):
+    def reset(self, reset_perm, reset_n = None):
         self.i = 0
+        if reset_n is not None:
+            self.n = reset_n
+            self.max = torch.full((self.bs,), self.n - 1, device="cuda")
         if reset_perm:
             self.v = torch.zeros((self.bs, self.n), device="cuda")
             batch_axis = torch.arange(self.bs, dtype=int, device="cuda")
