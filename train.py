@@ -11,14 +11,15 @@ import random
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch-size", default=1, type=int)
-    parser.add_argument("--lr", default=0.1, type=float)
-    parser.add_argument("--num-episode", default=10000, type=int)
-    parser.add_argument("--n", default=100, type=int)
+    parser.add_argument("--batch-size", default=50000, type=int)
+    parser.add_argument("--lr", default=1, type=float)
+    parser.add_argument("--num-episode", default=90000, type=int)
+    parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--save-episode", default=1000, type=int)
-    parser.add_argument("--phase-episode", default=1000, type=int)
+    parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--regular-lambda", default=0.0001, type=float)
+    parser.add_argument("--loglinear-d0", default=5, type=int)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -51,7 +52,7 @@ if __name__ == "__main__":
     n = args.n
 
     env = CSPEnv(n, args.batch_size)
-    agent = NeuralNetworkAgent(n, args.lr, args.regular_lambda)
+    agent = LogLinearAgent(n, args.lr, args.regular_lambda, args.loglinear_d0)
 
     running_reward, running_loss = [], []
 

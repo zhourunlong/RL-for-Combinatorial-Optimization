@@ -133,18 +133,60 @@ class NeuralNetworkAgent():
             probs = F.softmax(params, dim=-1)
         return probs[:, 0].view(-1,)
 
-'''
 class LogLinearAgent():
-    def __init__(self, n, lr=1e-3, regular_lambda=1e-4):
+    def __init__(self, n, lr=1e-3, regular_lambda=1e-4, d0=5):
         self.n = n
-        self.theta = Variable(torch.zeros((n, 2))).cuda()
+        self.d0 = d0
+        self.d = d0 ** 3
+        self.theta = Variable(torch.zeros(d0 ** 3)).cuda()
         self.theta.requires_grad = True
-        self.optimizer = torch.optim.Adam(self.NN.parameters(), lr=lr)
+        self.lr = lr
         self.regular_lambda = regular_lambda
 
+    def get_phi(self, fraction, indicator):
+        f_axis = torch.logspace(0, self.d0 - 1, self.d0, fraction,  dtype=float, device="cuda")
+        i_axis = torch.logspace(0, self.d0 - 1, self.d0, indicator, dtype=float, device="cuda")
+        a_axis_0 = torch.zeros((1, self.d0), dtype=float, device="cuda")
+        a_axis_0[0, 0] = 1
+        a_axis_1 = torch.ones((1, self.d0), dtype=float, device="cuda")
+
+        tmp = torch.matmul(f_axis.view(-1, 1), i_axis.view(1, -1)).view(-1, 1)
+        
+        phi = torch.zeros((2, self.d), device="cuda")
+        phi[0] = torch.matmul(tmp, a_axis_0).view(-1,)
+        phi[1] = torch.matmul(tmp, a_axis_1).view(-1,)
+
+        return phi
+
+    def get_phi_batch(self, fractions, indicators):
+        bs = fractions.shape[0]
+
+        f_axis = torch.ones((bs, self.d0), device="cuda")
+        i_axis = torch.ones((bs, self.d0), device="cuda")
+
+        fractions = fractions.float().view(1, -1)
+        indicators = indicators.float().view(1, -1)
+
+        for i in range(1, self.d0):
+            f_axis[:, i] = f_axis[:, i - 1] * fractions
+            i_axis[:, i] = i_axis[:, i - 1] * indicators
+            
+        a_axis_0 = torch.zeros((1, self.d0), device="cuda")
+        a_axis_0[0, 0] = 1
+        a_axis_1 = torch.ones((1, self.d0), device="cuda")
+
+        tmp = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1, 1)
+        
+        phi0 = torch.matmul(tmp, a_axis_0).view(bs, -1)
+        phi1 = torch.matmul(tmp, a_axis_1).view(bs, -1)
+
+        phi = torch.stack((phi0, phi1), axis=0)
+        
+        return phi.transpose(0, 1)
+
     def get_action(self, state):
-        inputs = torch.cat([state[0].view(-1, 1), state[1].view(-1, 1)], dim=-1)
-        params = self.NN(inputs)
+        phi = self.get_phi_batch(state[0], state[1])
+        params = torch.matmul(phi, self.theta.view(-1, 1)).squeeze(-1)
         probs = F.softmax(params, dim=-1)
         log_probs = F.log_softmax(params, dim=-1)
 
@@ -171,19 +213,17 @@ class LogLinearAgent():
         baseline = rewards[-1].mean()
         loss = -(log_probs * (rewards - baseline) + self.regular_lambda * entropies).mean()
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        grads = autograd.grad(outputs=loss, inputs=self.theta, allow_unused=True)[0]
+        self.theta = self.theta - self.lr * grads
 
         return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
 
     def get_accept_prob(self, state):
         with torch.no_grad():
-            inputs = torch.cat([state[0].view(-1, 1), state[1].view(-1, 1)],    dim=-1)
-            params = self.NN(inputs)
+            phi = self.get_phi_batch(state[0], state[1])
+            params = torch.matmul(phi, self.theta.view(-1, 1)).squeeze(-1)
             probs = F.softmax(params, dim=-1)
         return probs[:, 0].view(-1,)
-'''
 
 if __name__ == "__main__":
     agent = NaiveAgent(3)
