@@ -13,6 +13,9 @@ class SoftmaxTabularAgent():
         self.theta.requires_grad = True
         self.lr = lr
         self.regular_lambda = regular_lambda
+    
+    def update_n(self, n):
+        self.n = n
 
     def get_action(self, state):
         i, xi = (state[0] * self.n - 0.5).long(), state[1].long()
@@ -137,43 +140,27 @@ class LogLinearAgent():
     def __init__(self, n, lr=1e-3, regular_lambda=1e-4, d0=5):
         self.n = n
         self.d0 = d0
-        self.d = d0 ** 3
-        self.theta = Variable(torch.zeros(d0 ** 3)).cuda()
+        self.d = d0 * 2 * 2
+        self.theta = Variable(torch.zeros((self.d, 1))).cuda()
         self.theta.requires_grad = True
         self.lr = lr
         self.regular_lambda = regular_lambda
-
-    def get_phi(self, fraction, indicator):
-        f_axis = torch.logspace(0, self.d0 - 1, self.d0, fraction,  dtype=float, device="cuda")
-        i_axis = torch.logspace(0, self.d0 - 1, self.d0, indicator, dtype=float, device="cuda")
-        a_axis_0 = torch.zeros((1, self.d0), dtype=float, device="cuda")
-        a_axis_0[0, 0] = 1
-        a_axis_1 = torch.ones((1, self.d0), dtype=float, device="cuda")
-
-        tmp = torch.matmul(f_axis.view(-1, 1), i_axis.view(1, -1)).view(-1, 1)
-        
-        phi = torch.zeros((2, self.d), device="cuda")
-        phi[0] = torch.matmul(tmp, a_axis_0).view(-1,)
-        phi[1] = torch.matmul(tmp, a_axis_1).view(-1,)
-
-        return phi
+    
+    def update_n(self, n):
+        self.n = n
 
     def get_phi_batch(self, fractions, indicators):
         bs = fractions.shape[0]
 
         f_axis = torch.ones((bs, self.d0), device="cuda")
-        i_axis = torch.ones((bs, self.d0), device="cuda")
+        i_axis = torch.cat((torch.ones((bs, 1), device="cuda"), indicators.float().view(-1, 1)), dim=-1)
 
-        fractions = fractions.float().view(1, -1)
-        indicators = indicators.float().view(1, -1)
-
+        fractions = fractions.float().view(-1,)
         for i in range(1, self.d0):
             f_axis[:, i] = f_axis[:, i - 1] * fractions
-            i_axis[:, i] = i_axis[:, i - 1] * indicators
             
-        a_axis_0 = torch.zeros((1, self.d0), device="cuda")
-        a_axis_0[0, 0] = 1
-        a_axis_1 = torch.ones((1, self.d0), device="cuda")
+        a_axis_0 = torch.tensor([[1., 0.]], device="cuda")
+        a_axis_1 = torch.tensor([[1., 1.]], device="cuda")
 
         tmp = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1, 1)
         
@@ -186,7 +173,8 @@ class LogLinearAgent():
 
     def get_action(self, state):
         phi = self.get_phi_batch(state[0], state[1])
-        params = torch.matmul(phi, self.theta.view(-1, 1)).squeeze(-1)
+
+        params = torch.matmul(phi, self.theta).squeeze(-1)
         probs = F.softmax(params, dim=-1)
         log_probs = F.log_softmax(params, dim=-1)
 
