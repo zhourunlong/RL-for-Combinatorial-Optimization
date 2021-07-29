@@ -47,11 +47,11 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(logdir, "results"), exist_ok=True)
     print("Experiment dir: {}".format(logdir))
 
-    shutil.copy("agent.py", os.path.join(logdir, "code"))
-    shutil.copy("env.py", os.path.join(logdir, "code"))
-    shutil.copy("train.py", os.path.join(logdir, "code"))
-    shutil.copy("visualize.py", os.path.join(logdir, "code"))
-
+    dirs = os.listdir(".")
+    for fn in dirs:
+        if os.path.splitext(fn)[-1] == ".py":
+            shutil.copy(fn, os.path.join(logdir, "code"))
+    
     n = args.n
 
     env = CSPEnv(n, args.batch_size)

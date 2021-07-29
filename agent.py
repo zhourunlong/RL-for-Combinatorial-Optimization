@@ -210,6 +210,10 @@ class LogLinearAgent():
         rewards.unsqueeze_(1)
         grads = -torch.matmul(rewards, grads_logp).transpose(1, 2).mean(0) / rewards.shape[2]
 
+        #F = torch.matmul(grads_logp.view(-1, self.d, 1), grads_logp.view(-1, 1, self.d)).mean(0)
+
+        #self.theta -= self.lr * torch.matmul(F.pinverse(), grads)
+
         self.theta -= self.lr * grads
 
         return baseline.detach().cpu(), loss.detach().cpu()
