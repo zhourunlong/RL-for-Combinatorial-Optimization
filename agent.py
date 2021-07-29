@@ -28,9 +28,9 @@ class SoftmaxTabularAgent():
         log_prob = log_probs.gather(1, action).view(-1,)
         entropy = -(probs * log_probs).sum(-1)
 
-        return action.view(-1,), prob, log_prob, entropy
+        return action.view(-1,), prob, log_prob, entropy, None
         
-    def update_param(self, states, rewards, probs, log_probs, entropies):
+    def update_param(self, states, rewards, probs, log_probs, entropies, grads_logp):
         states.reverse()
         rewards.reverse()
         probs.reverse()
@@ -105,9 +105,9 @@ class NeuralNetworkAgent():
         log_prob = log_probs.gather(1, action).view(-1,)
         entropy = -(probs * log_probs).sum(-1)
 
-        return action.view(-1,), prob, log_prob, entropy
+        return action.view(-1,), prob, log_prob, entropy, None
         
-    def update_param(self, states, rewards, probs, log_probs, entropies):
+    def update_param(self, states, rewards, probs, log_probs, entropies, grads_logp):
         states.reverse()
         rewards.reverse()
         probs.reverse()
@@ -141,8 +141,7 @@ class LogLinearAgent():
         self.n = n
         self.d0 = d0
         self.d = d0 * 2 * 2
-        self.theta = Variable(torch.zeros((self.d, 1))).cuda()
-        self.theta.requires_grad = True
+        self.theta = torch.zeros((self.d, 1), device="cuda")
         self.lr = lr
         self.regular_lambda = regular_lambda
     
@@ -183,33 +182,42 @@ class LogLinearAgent():
         log_prob = log_probs.gather(1, action).view(-1,)
         entropy = -(probs * log_probs).sum(-1)
 
-        return action.view(-1,), prob, log_prob, entropy
+        phi_sub = (1 - 2 * action.float()) * (phi[:, 0, :] - phi[:, 1, :])
+        grad_logp = (1 - prob).view(-1, 1) * phi_sub
+
+        return action.view(-1,), prob, log_prob, entropy, grad_logp
         
-    def update_param(self, states, rewards, probs, log_probs, entropies):
+    def update_param(self, states, rewards, probs, log_probs, entropies, grads_logp):
         states.reverse()
         rewards.reverse()
         probs.reverse()
         log_probs.reverse()
         #entropies.reverse()
+        grads_logp.reverse()
         
         rewards = torch.stack(rewards)
         probs = torch.stack(probs)
         log_probs = torch.stack(log_probs)
         entropies = torch.stack(entropies)
+        grads_logp = torch.stack(grads_logp)
         
         rewards = rewards.cumsum(0)
         baseline = rewards[-1].mean()
-        loss = -(log_probs * (rewards - baseline) + self.regular_lambda * entropies).mean()
+        rewards -= baseline
+        loss = -(log_probs * rewards + self.regular_lambda * entropies).mean()
 
-        grads = autograd.grad(outputs=loss, inputs=self.theta, allow_unused=True)[0]
-        self.theta = self.theta - self.lr * grads
+        # no regularizer!!!!
+        rewards.unsqueeze_(1)
+        grads = -torch.matmul(rewards, grads_logp).transpose(1, 2).mean(0) / rewards.shape[2]
 
-        return rewards[-1].mean().detach().cpu(), loss.detach().cpu()
+        self.theta -= self.lr * grads
+
+        return baseline.detach().cpu(), loss.detach().cpu()
 
     def get_accept_prob(self, state):
         with torch.no_grad():
             phi = self.get_phi_batch(state[0], state[1])
-            params = torch.matmul(phi, self.theta.view(-1, 1)).squeeze(-1)
+            params = torch.matmul(phi, self.theta).squeeze(-1)
             probs = F.softmax(params, dim=-1)
         return probs[:, 0].view(-1,)
 

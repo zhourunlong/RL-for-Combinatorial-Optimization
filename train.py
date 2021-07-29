@@ -20,6 +20,7 @@ def get_args():
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--regular-lambda", default=0.0001, type=float)
     parser.add_argument("--loglinear-d0", default=5, type=int)
+    parser.add_argument("--curve-buffer-size", default=100, type=int)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -34,6 +35,8 @@ def set_seed(seed):
 
 if __name__ == "__main__":
     args = get_args()
+
+    assert args.save_episode % args.curve_buffer_size == 0
 
     set_seed(args.seed)
 
@@ -55,7 +58,8 @@ if __name__ == "__main__":
     agent = LogLinearAgent(n, args.lr, args.regular_lambda, args.loglinear_d0)
     #agent = NeuralNetworkAgent(n, args.lr, args.regular_lambda)
 
-    running_reward, running_loss = [], []
+    running_reward, running_loss = [0 for _ in range(args.num_episode // args.curve_buffer_size)], [0 for _ in range(args.num_episode // args.curve_buffer_size)]
+    reward_buf, loss_buf = 0, 0
 
     current_n_episode = 0
 
@@ -69,10 +73,10 @@ if __name__ == "__main__":
             else:
                 env.reset(True)
 
-            states, rewards, probs, log_probs, entropies = [], [], [], [], []
+            states, rewards, probs, log_probs, entropies, grads_logp = [], [], [], [], [], []
             for step in range(n):
                 state = env.get_state()
-                action, prob, log_prob, entropy = agent.get_action(state)
+                action, prob, log_prob, entropy, grad_logp = agent.get_action(state)
                 reward = env.get_reward(action)
                 
                 states.append(state)
@@ -80,10 +84,16 @@ if __name__ == "__main__":
                 probs.append(prob)
                 log_probs.append(log_prob)
                 entropies.append(entropy)
+                grads_logp.append(grad_logp)
             
-            reward, loss = agent.update_param(states, rewards, probs, log_probs, entropies)
-            running_reward.append(reward)
-            running_loss.append(loss)
+            reward, loss = agent.update_param(states, rewards, probs, log_probs, entropies, grads_logp)
+            reward_buf += reward
+            loss_buf += loss
+            if (episode + 1) % args.curve_buffer_size == 0:
+                idx = episode // args.curve_buffer_size
+                running_reward[idx] = reward_buf / args.curve_buffer_size
+                running_loss[idx] = loss_buf / args.curve_buffer_size
+                reward_buf, loss_buf = 0, 0
         
             pbar.set_description("Epi: %d, N: %d, R: %2.4f, L: %2.4f" % (episode, n, reward, loss))
 
@@ -91,7 +101,7 @@ if __name__ == "__main__":
                 savepath = os.path.join(logdir, "models/%08d.pt" % (episode))
                 torch.save(agent, savepath)
                 plot_prob_fig(agent, os.path.join(logdir, "results/visualize%08d.jpg" % (episode)))
-                plot_rl_fig(running_reward, running_loss, os.path.join(logdir, "results/curve.jpg"))
+                plot_rl_fig(running_reward, running_loss, os.path.join(logdir, "results/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)
             
             current_n_episode += 1
 
