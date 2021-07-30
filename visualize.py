@@ -8,6 +8,8 @@ matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt
 
+from calculate_opt_policy import *
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", default=None, type=str)
@@ -58,9 +60,29 @@ if __name__ == "__main__":
     agent = torch.load(args.model_dir)
     #plot_prob_fig(agent, "visualize.jpg")
     #plot_rl_fig([0.5, 0.6, 0.7], [-0.1, -0.2, -0.3], "curve.jpg")
-    print(agent.theta.view(-1,))
+    #print(agent.theta.view(-1,))
 
-    states = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.ones((agent.n,), device="cuda")]
-    logits = agent.get_logits(states)
+    (success, x) = opt_loglinear(agent.n, agent.d0, 50)
+    assert success
 
-    print(logits.view(-1,))
+    x = torch.tensor(x).float().cuda()
+    agent.theta = x.view_as(agent.theta)
+
+    plot_prob_fig(agent, "visualize.jpg")
+
+    states_1 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.ones((agent.n,), device="cuda")]
+    states_0 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.zeros((agent.n,), device="cuda")]
+    logits_1 = agent.get_logits(states_1).view(-1,).cpu()
+
+    print(logits_1)
+
+    logits_0 = agent.get_logits(states_0).view(-1,).cpu()
+
+    print(logits_0)
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+    x = np.array([(_ + 1) / agent.n for _ in range(agent.n)])
+    ax.plot(x, np.array(logits_1), label="Logits_1")
+    ax.plot(x, np.array(logits_0), label="Logits_0")
+    plt.savefig("logits.jpg")
+    plt.close()
