@@ -140,7 +140,7 @@ class LogLinearAgent():
     def __init__(self, n, lr=1e-3, regular_lambda=1e-4, d0=5):
         self.n = n
         self.d0 = d0
-        self.d = d0 * 2 * 2
+        self.d = d0 * 2
         self.theta = torch.zeros((self.d, 1), device="cuda")
         self.lr = lr
         self.regular_lambda = regular_lambda
@@ -157,23 +157,16 @@ class LogLinearAgent():
         fractions = fractions.float().view(-1,)
         for i in range(1, self.d0):
             f_axis[:, i] = f_axis[:, i - 1] * fractions
-            
-        a_axis_0 = torch.tensor([[1., 0.]], device="cuda")
-        a_axis_1 = torch.tensor([[1., 1.]], device="cuda")
 
-        tmp = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1, 1)
-        
-        phi0 = torch.matmul(tmp, a_axis_0).view(bs, -1)
-        phi1 = torch.matmul(tmp, a_axis_1).view(bs, -1)
-
-        phi = torch.stack((phi0, phi1), axis=0)
-        
-        return phi.transpose(0, 1)
-
+        phi = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1)
+        return phi
+    
     def get_action(self, state):
         phi = self.get_phi_batch(state[0], state[1])
 
-        params = torch.matmul(phi, self.theta).squeeze(-1)
+        params = torch.matmul(phi, self.theta)
+        params = torch.cat([params, torch.zeros_like(params)], dim=-1)
+
         probs = F.softmax(params, dim=-1)
         log_probs = F.log_softmax(params, dim=-1)
 
@@ -182,8 +175,7 @@ class LogLinearAgent():
         log_prob = log_probs.gather(1, action).view(-1,)
         entropy = -(probs * log_probs).sum(-1)
 
-        phi_sub = (1 - 2 * action.float()) * (phi[:, 0, :] - phi[:, 1, :])
-        grad_logp = (1 - prob).view(-1, 1) * phi_sub
+        grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action.float()) * phi
 
         return action.view(-1,), prob, log_prob, entropy, grad_logp
         
@@ -210,19 +202,30 @@ class LogLinearAgent():
         rewards.unsqueeze_(1)
         grads = -torch.matmul(rewards, grads_logp).transpose(1, 2).mean(0) / rewards.shape[2]
 
-        #F = torch.matmul(grads_logp.view(-1, self.d, 1), grads_logp.view(-1, 1, self.d)).mean(0)
-
-        #self.theta -= self.lr * torch.matmul(F.pinverse(), grads)
+        F = torch.matmul(grads_logp.view(-1, self.d, 1), grads_logp.view(-1, 1, self.d)).mean(0)
+        
+        grads = torch.matmul(F.pinverse(), grads)
+        norm = torch.norm(grads, float("inf"))
+        if norm > 20:
+            grads *= 20 / norm
 
         self.theta -= self.lr * grads
 
         return baseline.detach().cpu(), loss.detach().cpu()
+    
+    def get_logits(self, state):
+        phi = self.get_phi_batch(state[0], state[1])
+
+        params = torch.matmul(phi, self.theta)
+
+        return params
 
     def get_accept_prob(self, state):
-        with torch.no_grad():
-            phi = self.get_phi_batch(state[0], state[1])
-            params = torch.matmul(phi, self.theta).squeeze(-1)
-            probs = F.softmax(params, dim=-1)
+        params = self.get_logits(state)
+        params = torch.cat([params, torch.zeros_like(params)], dim=-1)
+
+        probs = F.softmax(params, dim=-1)
+
         return probs[:, 0].view(-1,)
 
 if __name__ == "__main__":

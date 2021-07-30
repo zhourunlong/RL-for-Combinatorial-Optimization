@@ -53,12 +53,14 @@ def plot_rl_fig(reward, loss, pic_dir, curve_buffer_size, len_avail):
     plt.savefig(pic_dir)
     plt.close()
 
-def print_theta(agent):
-    print(agent.theta)
-
 if __name__ == "__main__":
     args = get_args()
     agent = torch.load(args.model_dir)
     #plot_prob_fig(agent, "visualize.jpg")
     #plot_rl_fig([0.5, 0.6, 0.7], [-0.1, -0.2, -0.3], "curve.jpg")
-    print_theta(agent)
+    print(agent.theta.view(-1,))
+
+    states = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.ones((agent.n,), device="cuda")]
+    logits = agent.get_logits(states)
+
+    print(logits.view(-1,))
