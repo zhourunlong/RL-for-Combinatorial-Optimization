@@ -15,22 +15,24 @@ def get_args():
     parser.add_argument("--model-dir", default=None, type=str)
     return parser.parse_args()
 
-def plot_prob_fig(agent, pic_dir):
+def plot_prob_fig(agent, env, pic_dir):
     states_1 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.ones((agent.n,), device="cuda")]
-    states_0 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.zeros((agent.n,), device="cuda")]
+    #states_0 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.zeros((agent.n,), device="cuda")]
     with torch.no_grad():
         max_acc = agent.get_accept_prob(states_1).cpu().numpy()
-        non_max_acc = agent.get_accept_prob(states_0).cpu().numpy()
+        #non_max_acc = agent.get_accept_prob(states_0).cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
     x = np.array([(_ + 1) / agent.n for _ in range(agent.n)])
     ax.plot(x, np.array(max_acc), label="Agent")
-    ax.plot(x, np.array(non_max_acc), label="Agent (not prefix max)")
+    #ax.plot(x, np.array(non_max_acc), label="Agent (not prefix max)")
 
-    x2 = np.array([0, np.exp(-1), np.exp(-1), 1])
-    y2 = np.array([0, 0, 1, 1])
-    ax.plot(x2, y2, label="Optimal")
+    idx = opt_tabular(env.probs.cpu().numpy())
+    y = np.zeros_like(x)
+    for i in idx:
+        y[i - 1] = 1
+    ax.plot(x, y, label="Optimal")
 
     ax.set_title("Plot of acceptance probability")
     ax.set_xlabel("Time")

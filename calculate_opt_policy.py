@@ -1,5 +1,6 @@
 import argparse
 from fractions import Fraction
+from decimal import Decimal
 import numpy as np
 from scipy.optimize import linprog
 import cvxpy as cp
@@ -12,7 +13,8 @@ def get_args():
     parser.add_argument("--M", default=20, type=float)
     return parser.parse_args()
 
-def opt_tabular(n):
+def opt_tabular(probs):
+    n = probs.shape[0]
     Q = [[[Fraction(0), Fraction(0)], [Fraction(0), Fraction(0)]] for _ in range(n + 1)]
     V = [[Fraction(0), Fraction(0)] for _ in range(n + 1)]
 
@@ -24,17 +26,27 @@ def opt_tabular(n):
     Q[n][1][1] = Fraction(-1)
     V[n][1] = Fraction(1)
 
+    prob_max = Fraction(1)
+
+    ret = [n]
+
     for i in range(n - 1, 0, -1):
+        p_i = Fraction(Decimal.from_float(np.float(probs[i])))
+        prob_max *= 1 - p_i
+
         Q[i][0][0] = Fraction(-1)
-        Q[i][0][1] = Fraction(i, i + 1) * V[i + 1][0] + Fraction(1, i + 1) * V[i + 1][1]
+        Q[i][0][1] = (1 - p_i) * V[i + 1][0] + Fraction(p_i) * V[i + 1][1]
         
-        Q[i][1][0] = Fraction(2 * i - n, n)
+        Q[i][1][0] = 2 * prob_max - 1
         Q[i][1][1] = Q[i][0][1]
 
         for j in range(2):
             V[i][j] = max(Q[i][j][0], Q[i][j][1])
 
-        print(float(V[i][1]), V[i][1])
+        if V[i][1] == Q[i][1][0]:
+            ret.append(i)
+    
+    return ret
 
 def opt_loglinear(n, d0, M):
     d = d0 * 2
@@ -79,5 +91,5 @@ def opt_loglinear(n, d0, M):
 
 if __name__ == "__main__":
     args = get_args()
-    #opt_tabular(args.n)
+    opt_tabular(args.n)
     print(opt_loglinear(args.n, args.d0, args.M))

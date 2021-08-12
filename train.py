@@ -105,7 +105,7 @@ if __name__ == "__main__":
             if (episode + 1) % args.save_episode == 0:
                 savepath = os.path.join(logdir, "models/%08d.pt" % (episode))
                 torch.save(agent, savepath)
-                plot_prob_fig(agent, os.path.join(logdir, "results/visualize%08d.jpg" % (episode)))
+                plot_prob_fig(agent, env, os.path.join(logdir, "results/visualize%08d.jpg" % (episode)))
                 plot_rl_fig(running_reward, running_loss, os.path.join(logdir, "results/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)
             
             current_n_episode += 1
