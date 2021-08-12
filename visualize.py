@@ -22,7 +22,10 @@ def plot_prob_fig(agent, env, pic_dir):
         max_acc = agent.get_accept_prob(states_1).cpu().numpy()
         #non_max_acc = agent.get_accept_prob(states_0).cpu().numpy()
 
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(20, 20))
+
+    plt.xticks(fontsize=30)
+    plt.yticks(fontsize=30)
 
     x = np.array([(_ + 1) / agent.n for _ in range(agent.n)])
     ax.plot(x, np.array(max_acc), label="Agent")
@@ -34,10 +37,10 @@ def plot_prob_fig(agent, env, pic_dir):
         y[i - 1] = 1
     ax.plot(x, y, label="Optimal")
 
-    ax.set_title("Plot of acceptance probability")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Pr[accept]")
-    ax.legend(loc="best")
+    ax.set_title("Plot of acceptance probability", fontsize=40)
+    ax.set_xlabel("Time", fontsize=40)
+    ax.set_ylabel("Pr[accept]", fontsize=40)
+    ax.legend(loc="best", fontsize=40)
 
     plt.savefig(pic_dir)
     plt.close()

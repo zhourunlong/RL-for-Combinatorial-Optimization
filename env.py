@@ -14,7 +14,8 @@ class CSPEnv():
             if self.type == "uniform":
                 self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.float32, device="cuda")
             else:
-                self.probs = torch.cat((torch.ones((1,), device="cuda"), torch.rand(self.n - 1, device="cuda")))
+                tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.float32, device="cuda")
+                self.probs = torch.cat((torch.ones((1,), device="cuda"), 2 * torch.rand(self.n - 1, device="cuda") * tmp))
 
         if reset_perm:
             self.v = self.probs.repeat(self.bs, 1).bernoulli()
