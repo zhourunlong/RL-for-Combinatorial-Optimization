@@ -38,9 +38,10 @@ def opt_tabular(n):
 
 def opt_loglinear(n, d0, M):
     d = d0 * 2
-    #c = np.zeros((d,))
-    A_ub = np.zeros((2 * n, d))
-    b_ub = np.full((2 * n,), -M)
+    c = np.zeros((d + 1,))
+    c[-1] = 1
+    A_ub = np.zeros((2 * n + 2 * d, d + 1))
+    b_ub = np.full((2 * n + 2 * d,), -M)
 
     for i in range(n):
         f = (i + 1) / n
@@ -51,25 +52,30 @@ def opt_loglinear(n, d0, M):
         if f > math.exp(-1):
             A_ub[n + i, :] *= -1
     
+    for i in range(d):
+        A_ub[2 * n + 2 * i, i] = 1
+        A_ub[2 * n + 2 * i, -1] = -1
+        b_ub[2 * n + 2 * i] = 0
+
+        A_ub[2 * n + 2 * i + 1, i] = -1
+        A_ub[2 * n + 2 * i + 1, -1] = -1
+        b_ub[2 * n + 2 * i + 1] = 0
+    
     #print("A_ub", A_ub, "b_ub", b_ub)
 
-    #res = linprog(c=c, A_ub=A_ub, b_ub=b_ub, bounds=(-1000, 1000))
+    res = linprog(c=c, A_ub=A_ub, b_ub=b_ub, bounds=(None, None))
+    print(res)
 
-    #return res.success, res.x
+    return res.success, res.x
 
+    '''
     x = cp.Variable(d)
     prob = cp.Problem(cp.Minimize(cp.quad_form(x, np.eye(d))),
                     [A_ub @ x <= b_ub])
     prob.solve(solver=cp.OSQP, max_iter=1000000, verbose=False)
 
     return prob.status == "optimal", x.value
-
-    # Print result.
-    print("\nThe optimal value is", prob.value)
-    print("A solution x is")
-    print(x.value)
-    print("A dual solution corresponding to the inequality constraints is")
-    print(prob.constraints[0].dual_value)
+    '''
 
 if __name__ == "__main__":
     args = get_args()

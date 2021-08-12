@@ -11,16 +11,17 @@ import random
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch-size", default=50000, type=int)
-    parser.add_argument("--lr", default=1, type=float)
-    parser.add_argument("--num-episode", default=100000, type=int)
+    parser.add_argument("--batch-size", default=10000, type=int)
+    parser.add_argument("--lr", default=0.1, type=float)
+    parser.add_argument("--num-episode", default=20000, type=int)
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--save-episode", default=1000, type=int)
-    parser.add_argument("--phase-episode", default=10000, type=int)
+    parser.add_argument("--phase-episode", default=2000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
-    parser.add_argument("--regular-lambda", default=0.0001, type=float)
-    parser.add_argument("--loglinear-d0", default=5, type=int)
+    parser.add_argument("--regular-lambda", default=0, type=float)
+    parser.add_argument("--loglinear-d0", default=20, type=int)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
+    parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
     return parser.parse_args()
 
 def set_seed(seed):
@@ -54,7 +55,7 @@ if __name__ == "__main__":
     
     n = args.n
 
-    env = CSPEnv(n, args.batch_size)
+    env = CSPEnv(n, args.batch_size, args.type)
     agent = LogLinearAgent(n, args.lr, args.regular_lambda, args.loglinear_d0)
     #agent = NeuralNetworkAgent(n, args.lr, args.regular_lambda)
 
@@ -72,6 +73,10 @@ if __name__ == "__main__":
                 agent.update_n(n)
             else:
                 env.reset(True)
+            
+            #print(env.probs)
+            #print(env.v)
+            #print("argmax", env.argmax)
 
             states, rewards, probs, log_probs, entropies, grads_logp = [], [], [], [], [], []
             for step in range(n):

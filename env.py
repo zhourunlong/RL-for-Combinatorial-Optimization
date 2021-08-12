@@ -1,42 +1,39 @@
 import torch
 
 class CSPEnv():
-    def __init__(self, n, bs):
+    def __init__(self, n, bs, type):
         self.n = n
         self.bs = bs
-        self.max = torch.full((bs,), n - 1, device="cuda")
+        self.type = type
+        self.reset(True, n)
     
     def reset(self, reset_perm, reset_n = None):
         self.i = 0
         if reset_n is not None:
             self.n = reset_n
-            self.max = torch.full((self.bs,), self.n - 1, device="cuda")
+            if self.type == "uniform":
+                self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.float32, device="cuda")
+            else:
+                self.probs = torch.cat((torch.ones((1,), device="cuda"), torch.rand(self.n - 1, device="cuda")))
+
         if reset_perm:
-            self.v = torch.zeros((self.bs, self.n), device="cuda")
-            batch_axis = torch.arange(self.bs, dtype=int, device="cuda")
-            for i in range(1, self.n):
-                pos = torch.randint(i + 1, (self.bs,), device="cuda")
-                self.v[:, i] = self.v[batch_axis, pos]
-                self.v[batch_axis, pos] = i
-        self.premax = torch.zeros((self.bs,), device="cuda")
+            self.v = self.probs.repeat(self.bs, 1).bernoulli()
+            self.argmax = torch.argmax(self.v + torch.arange(self.n, dtype=torch.float32, device="cuda") * 1e-5, 1)
+        
         self.active = torch.ones((self.bs,), device="cuda")
     
     def get_state(self):
-        self.premax = torch.max(self.premax, self.v[:, self.i])
-        return [torch.full((self.bs,), (self.i + 1) / self.n, device="cuda"), torch.eq(self.v[:, self.i], self.premax).float()]
+        return [torch.full((self.bs,), (self.i + 1) / self.n, device="cuda"), self.v[:, self.i].float()]
     
     def get_reward(self, action):
         action = action.float()
-        raw_reward = 2 * torch.eq(self.v[:, self.i], self.max).float() - 1
+        raw_reward = 2 * (self.argmax == self.i).float() - 1
         self.i += 1
         if self.i == self.n:
             return self.active * ((1 - action) * raw_reward - action)
         ret = (1 - action) * self.active * raw_reward
         self.active *= action
         return ret
-    
-    def print_v(self):
-        print(self.v)
 
 if __name__ == "__main__":
     env = CSPEnv(5, 3)
