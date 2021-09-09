@@ -61,6 +61,10 @@ def opt_loglinear(n, d0, M):
             A_ub[i, 2 * j] = f ** j
             A_ub[n + i, 2 * j] = f ** j
             A_ub[n + i, 2 * j + 1] = f ** j
+        ### Try another feature
+        #A_ub[i] /= np.linalg.norm(A_ub[i])
+        #A_ub[n + i] /= np.linalg.norm(A_ub[n + i])
+        ###
         if f > math.exp(-1):
             A_ub[n + i, :] *= -1
     
@@ -91,5 +95,5 @@ def opt_loglinear(n, d0, M):
 
 if __name__ == "__main__":
     args = get_args()
-    opt_tabular(args.n)
+    #opt_tabular(args.n)
     print(opt_loglinear(args.n, args.d0, args.M))

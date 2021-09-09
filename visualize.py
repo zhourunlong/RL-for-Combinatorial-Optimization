@@ -16,25 +16,22 @@ def get_args():
     return parser.parse_args()
 
 def plot_prob_fig(agent, env, pic_dir):
-    states_1 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.ones((agent.n,), device="cuda")]
-    #states_0 = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.zeros((agent.n,), device="cuda")]
+    states = [torch.arange(1, agent.n + 1, device="cuda").float() / agent.n, torch.ones((agent.n,), device="cuda")]
     with torch.no_grad():
-        max_acc = agent.get_accept_prob(states_1).cpu().numpy()
-        #non_max_acc = agent.get_accept_prob(states_0).cpu().numpy()
+        max_acc = agent.get_accept_prob(states).cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(20, 20))
 
     plt.xticks(fontsize=30)
     plt.yticks(fontsize=30)
 
-    x = np.array([(_ + 1) / agent.n for _ in range(agent.n)])
-    ax.plot(x, np.array(max_acc), label="Agent")
-    #ax.plot(x, np.array(non_max_acc), label="Agent (not prefix max)")
+    x = np.array([_ / agent.n for _ in range(agent.n + 1)])
+    ax.plot(x, np.concatenate((np.zeros(1,), np.array(max_acc))), label="Agent")
 
     idx = opt_tabular(env.probs.cpu().numpy())
     y = np.zeros_like(x)
     for i in idx:
-        y[i - 1] = 1
+        y[i] = 1
     ax.plot(x, y, label="Optimal")
 
     ax.set_title("Plot of acceptance probability", fontsize=40)
@@ -46,16 +43,20 @@ def plot_prob_fig(agent, env, pic_dir):
     plt.close()
 
 def plot_rl_fig(reward, loss, pic_dir, curve_buffer_size, len_avail):
-    fig, ax1 = plt.subplots(figsize=(20, 10))
+    fig, ax1 = plt.subplots(figsize=(40, 20))
+
+    plt.xticks(fontsize=30)
+    plt.yticks(fontsize=30)
+    
     ax2 = ax1.twinx()
 
     x = np.array([_ * curve_buffer_size for _ in range(len_avail)])
     line1, = ax1.plot(x, reward[:len_avail], "g-", label="Reward")
     line2, = ax2.plot(x, loss[:len_avail], "b--", label="Loss")
 
-    plt.title("Plot of training curve")
-    ax1.set_xlabel("Episode")
-    plt.legend((line1, line2), ("Reward", "Loss"), loc="best")
+    plt.title("Plot of training curve", fontsize=40)
+    ax1.set_xlabel("Episode", fontsize=40)
+    plt.legend((line1, line2), ("Reward", "Loss"), loc="best", fontsize=40)
 
     plt.savefig(pic_dir)
     plt.close()

@@ -137,29 +137,46 @@ class NeuralNetworkAgent():
         return probs[:, 0].view(-1,)
 
 class LogLinearAgent():
-    def __init__(self, n, lr=1e-3, regular_lambda=1e-4, d0=5):
-        self.n = n
+    def __init__(self, lr=1e-3, regular_lambda=1e-4, d0=5):
         self.d0 = d0
         self.d = d0 * 2
         self.theta = torch.zeros((self.d, 1), device="cuda")
         self.lr = lr
         self.regular_lambda = regular_lambda
+        if regular_lambda != 0:
+            print("Regular lambda not used in log-linear policy!")
     
     def update_n(self, n):
         self.n = n
 
-    def get_phi_batch(self, fractions, indicators):
+    def get_phi_batch(self, fractions, indicators, use_double=False):
         bs = fractions.shape[0]
 
         f_axis = torch.ones((bs, self.d0), device="cuda")
         i_axis = torch.cat((torch.ones((bs, 1), device="cuda"), indicators.float().view(-1, 1)), dim=-1)
 
-        fractions = fractions.float().view(-1,)
+        if use_double:
+            fractions = fractions.double()
+            f_axis = f_axis.double()
+            i_axis = i_axis.double()
+        else:
+            fractions = fractions.float()
+        fractions = fractions.view(-1,)
         for i in range(1, self.d0):
             f_axis[:, i] = f_axis[:, i - 1] * fractions
 
         phi = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1)
         return phi
+    
+    def get_phi_all(self):
+        f = torch.arange(1, self.n + 1, device="cuda").float() / self.n
+        f = torch.stack((f, f), dim=1).view(-1,)
+
+        x = torch.tensor([0, 1], device="cuda")
+        x = x.repeat(self.n, 1).view(-1,)
+
+        phi = self.get_phi_batch(f, x, True)
+        return phi.view(self.n, 2, -1)
     
     def get_action(self, state):
         phi = self.get_phi_batch(state[0], state[1])
@@ -173,38 +190,49 @@ class LogLinearAgent():
         action = probs.multinomial(1)
         prob = probs.gather(1, action).view(-1,)
         log_prob = log_probs.gather(1, action).view(-1,)
-        entropy = -(probs * log_probs).sum(-1)
+        #entropy = -(probs * log_probs).sum(-1)
 
         grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action.float()) * phi
 
-        return action.view(-1,), prob, log_prob, entropy, grad_logp
+        return action.view(-1,), prob, log_prob, grad_logp
+    
+    def get_policy(self):
+        phi = self.get_phi_all().view(2 * self.n, -1)
         
-    def update_param(self, states, rewards, probs, log_probs, entropies, grads_logp):
+        params = torch.matmul(phi, self.theta.double())
+        params = torch.cat([params, torch.zeros_like(params)], dim=-1)
+
+        probs = F.softmax(params, dim=-1)
+
+        return probs[:, 0].view(self.n, 2)
+        
+    def update_param(self, states, rewards, probs, log_probs, grads_logp):
         states.reverse()
         rewards.reverse()
         probs.reverse()
         log_probs.reverse()
-        #entropies.reverse()
         grads_logp.reverse()
         
         rewards = torch.stack(rewards)
         probs = torch.stack(probs)
         log_probs = torch.stack(log_probs)
-        entropies = torch.stack(entropies)
         grads_logp = torch.stack(grads_logp)
         
         rewards = rewards.cumsum(0)
         baseline = rewards[-1].mean()
         rewards -= baseline
-        loss = -(log_probs * rewards + self.regular_lambda * entropies).mean()
+        loss = -(log_probs * rewards).mean()
 
         # no regularizer!!!!
         rewards.unsqueeze_(1)
         grads = -torch.matmul(rewards, grads_logp).transpose(1, 2).mean(0) / rewards.shape[2]
 
         F = torch.matmul(grads_logp.view(-1, self.d, 1), grads_logp.view(-1, 1, self.d)).mean(0)
+
+        #grads_logp_double = grads_logp.double()
+        #F_double = torch.matmul(grads_logp_double.view(-1, self.d, 1), grads_logp_double.view(-1, 1, self.d)).mean(0)
         
-        grads = torch.matmul(F.pinverse(), grads)
+        grads = torch.matmul(F.pinverse(), grads).float()
         norm = torch.norm(grads, float("inf"))
         if norm > 20:
             grads *= 20 / norm

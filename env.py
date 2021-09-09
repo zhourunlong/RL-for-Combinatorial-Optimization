@@ -1,25 +1,23 @@
 import torch
 
 class CSPEnv():
-    def __init__(self, n, bs, type):
-        self.n = n
+    def __init__(self, bs, type):
         self.bs = bs
         self.type = type
-        self.reset(True, n)
     
     def reset(self, reset_perm, reset_n = None):
         self.i = 0
         if reset_n is not None:
             self.n = reset_n
             if self.type == "uniform":
-                self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.float32, device="cuda")
+                self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device="cuda")
             else:
-                tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.float32, device="cuda")
-                self.probs = torch.cat((torch.ones((1,), device="cuda"), 2 * torch.rand(self.n - 1, device="cuda") * tmp))
+                tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device="cuda")
+                self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device="cuda"), tmp.pow(2 * torch.rand(self.n - 1, dtype=torch.double, device="cuda"))))
 
         if reset_perm:
             self.v = self.probs.repeat(self.bs, 1).bernoulli()
-            self.argmax = torch.argmax(self.v + torch.arange(self.n, dtype=torch.float32, device="cuda") * 1e-5, 1)
+            self.argmax = torch.argmax(self.v + torch.arange(self.n, dtype=torch.double, device="cuda") * 1e-5, 1)
         
         self.active = torch.ones((self.bs,), device="cuda")
     
