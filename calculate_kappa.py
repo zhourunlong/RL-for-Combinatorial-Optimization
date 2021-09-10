@@ -21,8 +21,9 @@ def calc_kappa(probs, policy_star, policy_t, phi):
     
     U, S, V = torch.svd(sigma_t, compute_uv=True)
     sqinv = 1 / S.sqrt()
-    sqinv[S < 1e-10] = 0
-    st = torch.matmul(torch.matmul(U, torch.diag(sqinv)), V.T)
+    sqinv[S < 1e-15] = 0
+    
+    st = torch.matmul(torch.matmul(V, torch.diag(sqinv)), U.T)
 
     e, _ = torch.symeig(torch.matmul(torch.matmul(st, sigma_star), st))
     return e[-1]

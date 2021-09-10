@@ -107,7 +107,7 @@ if __name__ == "__main__":
                 running_loss[idx] = loss_buf / args.curve_buffer_size
                 reward_buf, loss_buf = 0, 0
         
-            pbar.set_description("Epi: %d, N: %d, R: %2.4f, L: %2.4f, K: %3.1f" % (episode, n, reward, loss, kappa))
+            pbar.set_description("Epi: %d, N: %d, R: %2.4f, L: %2.4f, K: %3.3f" % (episode, n, reward, loss, kappa))
 
             if (episode + 1) % args.save_episode == 0:
                 savepath = os.path.join(logdir, "models/%08d.pt" % (episode))
