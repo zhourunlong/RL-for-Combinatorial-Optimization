@@ -153,14 +153,14 @@ class LogLinearAgent():
         bs = fractions.shape[0]
 
         f_axis = torch.ones((bs, self.d0), device="cuda")
-        i_axis = torch.cat((torch.ones((bs, 1), device="cuda"), indicators.float().view(-1, 1)), dim=-1)
+        i_axis = torch.cat((torch.ones((bs, 1), device="cuda"), indicators.double().view(-1, 1)), dim=-1)
 
         if use_double:
             fractions = fractions.double()
             f_axis = f_axis.double()
             i_axis = i_axis.double()
         else:
-            fractions = fractions.float()
+            fractions = fractions.double()
         fractions = fractions.view(-1,)
         for i in range(1, self.d0):
             f_axis[:, i] = f_axis[:, i - 1] * fractions
@@ -169,7 +169,7 @@ class LogLinearAgent():
         return phi
     
     def get_phi_all(self):
-        f = torch.arange(1, self.n + 1, device="cuda").float() / self.n
+        f = torch.arange(1, self.n + 1, device="cuda").double() / self.n
         f = torch.stack((f, f), dim=1).view(-1,)
 
         x = torch.tensor([0, 1], device="cuda")
@@ -192,7 +192,7 @@ class LogLinearAgent():
         log_prob = log_probs.gather(1, action).view(-1,)
         #entropy = -(probs * log_probs).sum(-1)
 
-        grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action.float()) * phi
+        grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action.double()) * phi
 
         return action.view(-1,), prob, log_prob, grad_logp
     
@@ -232,7 +232,7 @@ class LogLinearAgent():
         #grads_logp_double = grads_logp.double()
         #F_double = torch.matmul(grads_logp_double.view(-1, self.d, 1), grads_logp_double.view(-1, 1, self.d)).mean(0)
         
-        grads = torch.matmul(F.pinverse(), grads).float()
+        grads = torch.matmul(F.pinverse(), grads).double()
         norm = torch.norm(grads, float("inf"))
         if norm > 20:
             grads *= 20 / norm
