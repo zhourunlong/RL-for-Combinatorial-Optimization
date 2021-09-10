@@ -140,7 +140,7 @@ class LogLinearAgent():
     def __init__(self, lr=1e-3, regular_lambda=1e-4, d0=5):
         self.d0 = d0
         self.d = d0 * 2
-        self.theta = torch.zeros((self.d, 1), device="cuda")
+        self.theta = torch.zeros((self.d, 1), dtype=torch.double, device="cuda")
         self.lr = lr
         self.regular_lambda = regular_lambda
         if regular_lambda != 0:
@@ -149,18 +149,12 @@ class LogLinearAgent():
     def update_n(self, n):
         self.n = n
 
-    def get_phi_batch(self, fractions, indicators, use_double=False):
+    def get_phi_batch(self, fractions, indicators):
         bs = fractions.shape[0]
 
-        f_axis = torch.ones((bs, self.d0), device="cuda")
-        i_axis = torch.cat((torch.ones((bs, 1), device="cuda"), indicators.double().view(-1, 1)), dim=-1)
-
-        if use_double:
-            fractions = fractions.double()
-            f_axis = f_axis.double()
-            i_axis = i_axis.double()
-        else:
-            fractions = fractions.double()
+        f_axis = torch.ones((bs, self.d0), dtype=torch.double, device="cuda")
+        i_axis = torch.cat((torch.ones((bs, 1), dtype=torch.double, device="cuda"), indicators.view(-1, 1)), dim=-1)
+        
         fractions = fractions.view(-1,)
         for i in range(1, self.d0):
             f_axis[:, i] = f_axis[:, i - 1] * fractions
@@ -169,13 +163,13 @@ class LogLinearAgent():
         return phi
     
     def get_phi_all(self):
-        f = torch.arange(1, self.n + 1, device="cuda").double() / self.n
+        f = torch.arange(1, self.n + 1, dtype=torch.double, device="cuda") / self.n
         f = torch.stack((f, f), dim=1).view(-1,)
 
-        x = torch.tensor([0, 1], device="cuda")
+        x = torch.tensor([0, 1], dtype=torch.double, device="cuda")
         x = x.repeat(self.n, 1).view(-1,)
 
-        phi = self.get_phi_batch(f, x, True)
+        phi = self.get_phi_batch(f, x)
         return phi.view(self.n, 2, -1)
     
     def get_action(self, state):
@@ -192,14 +186,16 @@ class LogLinearAgent():
         log_prob = log_probs.gather(1, action).view(-1,)
         #entropy = -(probs * log_probs).sum(-1)
 
-        grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action.double()) * phi
+        action = action.double()
+
+        grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action) * phi
 
         return action.view(-1,), prob, log_prob, grad_logp
     
     def get_policy(self):
         phi = self.get_phi_all().view(2 * self.n, -1)
         
-        params = torch.matmul(phi, self.theta.double())
+        params = torch.matmul(phi, self.theta)
         params = torch.cat([params, torch.zeros_like(params)], dim=-1)
 
         probs = F.softmax(params, dim=-1)
@@ -228,14 +224,11 @@ class LogLinearAgent():
         grads = -torch.matmul(rewards, grads_logp).transpose(1, 2).mean(0) / rewards.shape[2]
 
         F = torch.matmul(grads_logp.view(-1, self.d, 1), grads_logp.view(-1, 1, self.d)).mean(0)
-
-        #grads_logp_double = grads_logp.double()
-        #F_double = torch.matmul(grads_logp_double.view(-1, self.d, 1), grads_logp_double.view(-1, 1, self.d)).mean(0)
         
-        grads = torch.matmul(F.pinverse(), grads).double()
-        norm = torch.norm(grads, float("inf"))
-        if norm > 20:
-            grads *= 20 / norm
+        grads = torch.matmul(F.pinverse(), grads)
+        norm = torch.norm(grads)
+        if norm > 100:
+            grads *= 10 / norm.sqrt()
 
         self.theta -= self.lr * grads
 

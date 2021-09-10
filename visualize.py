@@ -16,7 +16,7 @@ def get_args():
     return parser.parse_args()
 
 def plot_prob_fig(agent, env, pic_dir):
-    states = [torch.arange(1, agent.n + 1, device="cuda").double() / agent.n, torch.ones((agent.n,), device="cuda")]
+    states = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.ones((agent.n,), dtype=torch.double, device="cuda")]
     with torch.no_grad():
         max_acc = agent.get_accept_prob(states).cpu().numpy()
 
@@ -76,8 +76,8 @@ if __name__ == "__main__":
 
     plot_prob_fig(agent, "visualize.jpg")
 
-    states_1 = [torch.arange(1, agent.n + 1, device="cuda").double() / agent.n, torch.ones((agent.n,), device="cuda")]
-    states_0 = [torch.arange(1, agent.n + 1, device="cuda").double() / agent.n, torch.zeros((agent.n,), device="cuda")]
+    states_1 = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.ones((agent.n,), dtype=torch.double, device="cuda")]
+    states_0 = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.zeros((agent.n,), dtype=torch.double, device="cuda")]
     logits_1 = agent.get_logits(states_1).view(-1,).cpu()
 
     print(logits_1)

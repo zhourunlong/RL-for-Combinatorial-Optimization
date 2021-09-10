@@ -19,13 +19,12 @@ class CSPEnv():
             self.v = self.probs.repeat(self.bs, 1).bernoulli()
             self.argmax = torch.argmax(self.v + torch.arange(self.n, dtype=torch.double, device="cuda") * 1e-5, 1)
         
-        self.active = torch.ones((self.bs,), device="cuda")
+        self.active = torch.ones((self.bs,), dtype=torch.double, device="cuda")
     
     def get_state(self):
-        return [torch.full((self.bs,), (self.i + 1) / self.n, device="cuda"), self.v[:, self.i].double()]
+        return [torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device="cuda"), self.v[:, self.i].double()]
     
     def get_reward(self, action):
-        action = action.double()
         raw_reward = 2 * (self.argmax == self.i).double() - 1
         self.i += 1
         if self.i == self.n:
