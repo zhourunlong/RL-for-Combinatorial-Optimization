@@ -26,6 +26,7 @@ def get_args():
     parser.add_argument("--loglinear-d0", default=20, type=int)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
     parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
+    parser.add_argument("--load-path", default=None, type=str)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -41,6 +42,23 @@ def set_seed(seed):
 if __name__ == "__main__":
     args = get_args()
 
+    if args.load_path is not None:
+        package = torch.load(args.load_path)
+        env = package["env"]
+        agent = package["agent"]
+        phi = agent.get_phi_all()
+        idx = opt_tabular(env.probs.cpu().numpy())
+        policy_star = torch.zeros((env.n, 2), dtype=torch.double, device="cuda")
+        for i in idx:
+            policy_star[i - 1, 1] = 1
+        kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
+
+        print(kappa)
+
+        plot_prob_fig(agent, env, "visualize.jpg")
+
+        exit(0)
+        
     assert (args.N - args.n) % args.d == 0
     assert args.save_episode % args.curve_buffer_size == 0
 
@@ -75,8 +93,7 @@ if __name__ == "__main__":
                 agent.update_n(n)
 
                 phi = agent.get_phi_all()
-                env_probs = env.probs
-                idx = opt_tabular(env_probs.cpu().numpy())
+                idx = opt_tabular(env.probs.cpu().numpy())
                 policy_star = torch.zeros((n, 2), dtype=torch.double, device="cuda")
                 for i in idx:
                     policy_star[i - 1, 1] = 1
@@ -99,7 +116,7 @@ if __name__ == "__main__":
             reward_buf += reward
             loss_buf += loss
 
-            kappa = calc_kappa(env_probs, policy_star, agent.get_policy(), phi)
+            kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
 
             if (episode + 1) % args.curve_buffer_size == 0:
                 idx = episode // args.curve_buffer_size

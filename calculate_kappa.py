@@ -9,15 +9,16 @@ def calc_distr(probs, policy):
     dfx = torch.stack((df - df1, df1), dim=1)
     return dfx
 
-def calc_sigma(probs, policy, phi):
-    d = calc_distr(probs, policy)
+def calc_sigma(probs, policy_d, policy_t, phi):
+    d = calc_distr(probs, policy_d)
+    w = (1 - policy_t) ** 2 + policy_t ** 2
     raw = torch.matmul(phi.unsqueeze(-1), phi.unsqueeze(-2))
-    sigma = (d.view(-1, 2, 1, 1) * raw).sum((0, 1))
+    sigma = ((d * w).view(-1, 2, 1, 1) * raw).sum((0, 1))
     return sigma
     
 def calc_kappa(probs, policy_star, policy_t, phi):
-    sigma_star = calc_sigma(probs, policy_star, phi)
-    sigma_t = calc_sigma(probs, policy_t, phi)
+    sigma_star = calc_sigma(probs, policy_star, policy_t, phi)
+    sigma_t = calc_sigma(probs, policy_t, policy_t, phi)
     
     U, S, V = torch.svd(sigma_t, compute_uv=True)
     sqinv = 1 / S.sqrt()
