@@ -12,7 +12,7 @@ def calc_distr(probs, policy):
 def calc_sigma(probs, policy_d, policy_t, phi):
     d = calc_distr(probs, policy_d)
     w = (1 - policy_t) ** 2 + policy_t ** 2
-    raw = torch.matmul(phi.unsqueeze(-1), phi.unsqueeze(-2))
+    raw = phi.unsqueeze(-1) @ phi.unsqueeze(-2)
     sigma = ((d * w).view(-1, 2, 1, 1) * raw).sum((0, 1))
     return sigma
     
@@ -20,11 +20,14 @@ def calc_kappa(probs, policy_star, policy_t, phi):
     sigma_star = calc_sigma(probs, policy_star, policy_t, phi)
     sigma_t = calc_sigma(probs, policy_t, policy_t, phi)
     
-    U, S, V = torch.svd(sigma_t, compute_uv=True)
-    sqinv = 1 / S.sqrt()
-    sqinv[S < 1e-15] = 0
-    
-    st = torch.matmul(torch.matmul(V, torch.diag(sqinv)), U.T)
+    S, U = torch.symeig(sigma_t, eigenvectors=True)
 
-    e, _ = torch.symeig(torch.matmul(torch.matmul(st, sigma_star), st))
+    sqinv = 1 / S.sqrt()
+    above_cutoff = S > 1e-12
+    sqinv = sqinv[above_cutoff]
+    U = U[:, above_cutoff]
+    
+    st = U @ torch.diag(sqinv) @ U.T
+
+    e, _ = torch.symeig(st @ sigma_star @ st)
     return e[-1]
