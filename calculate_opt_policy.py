@@ -48,12 +48,10 @@ def opt_tabular(probs):
     
     return ret
 
-def opt_loglinear(n, d0, M):
+def opt_loglinear(n, d0, M, th=math.exp(-1)):
     d = d0 * 2
-    c = np.zeros((d + 1,))
-    c[-1] = 1
-    A_ub = np.zeros((2 * n + 2 * d, d + 1))
-    b_ub = np.full((2 * n + 2 * d,), -M)
+    A_ub = np.zeros((2 * n, d))
+    b_ub = np.full((2 * n,), -M)
 
     for i in range(n):
         f = (i + 1) / n
@@ -61,37 +59,14 @@ def opt_loglinear(n, d0, M):
             A_ub[i, 2 * j] = f ** j
             A_ub[n + i, 2 * j] = f ** j
             A_ub[n + i, 2 * j + 1] = f ** j
-        ### Try another feature
-        #A_ub[i] /= np.linalg.norm(A_ub[i])
-        #A_ub[n + i] /= np.linalg.norm(A_ub[n + i])
-        ###
-        if f > math.exp(-1):
+        if f > th:
             A_ub[n + i, :] *= -1
-    
-    for i in range(d):
-        A_ub[2 * n + 2 * i, i] = 1
-        A_ub[2 * n + 2 * i, -1] = -1
-        b_ub[2 * n + 2 * i] = 0
 
-        A_ub[2 * n + 2 * i + 1, i] = -1
-        A_ub[2 * n + 2 * i + 1, -1] = -1
-        b_ub[2 * n + 2 * i + 1] = 0
-    
-    #print("A_ub", A_ub, "b_ub", b_ub)
-
-    res = linprog(c=c, A_ub=A_ub, b_ub=b_ub, bounds=(None, None))
-    print(res)
-
-    return res.success, res.x
-
-    '''
     x = cp.Variable(d)
-    prob = cp.Problem(cp.Minimize(cp.quad_form(x, np.eye(d))),
-                    [A_ub @ x <= b_ub])
+    prob = cp.Problem(cp.Minimize(cp.quad_form(x, np.eye(d))), [A_ub @ x <= b_ub])
     prob.solve(solver=cp.OSQP, max_iter=1000000, verbose=False)
 
     return prob.status == "optimal", x.value
-    '''
 
 if __name__ == "__main__":
     args = get_args()

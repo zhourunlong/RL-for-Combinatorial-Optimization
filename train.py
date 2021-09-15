@@ -19,10 +19,10 @@ def get_args():
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--N", default=100, type=int)
     parser.add_argument("--d", default=10, type=int)
+    parser.add_argument("--W", default=1000, type=float)
     parser.add_argument("--save-episode", default=1000, type=int)
     parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
-    parser.add_argument("--regular-lambda", default=0, type=float)
     parser.add_argument("--loglinear-d0", default=20, type=int)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
     parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
@@ -42,6 +42,9 @@ def set_seed(seed):
 if __name__ == "__main__":
     args = get_args()
 
+    assert (args.N - args.n) % args.d == 0
+    assert args.save_episode % args.curve_buffer_size == 0
+
     if args.load_path is not None:
         package = torch.load(args.load_path)
         env = package["env"]
@@ -55,12 +58,21 @@ if __name__ == "__main__":
 
         print(kappa)
 
+        print(agent.theta, torch.norm(agent.theta))
+
+        states_1 = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.ones((agent.n,), dtype=torch.double, device="cuda")]
+        states_0 = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.zeros((agent.n,), dtype=torch.double, device="cuda")]
+        logits_1 = agent.get_logits(states_1).view(-1,).cpu()
+        logits_0 = agent.get_logits(states_0).view(-1,).cpu()
+
+        print(logits_1, logits_0)
+
         plot_prob_fig(agent, env, "visualize.jpg")
 
-        exit(0)
-        
-    assert (args.N - args.n) % args.d == 0
-    assert args.save_episode % args.curve_buffer_size == 0
+        args.n = env.n
+    else:
+        env = CSPEnv(args.batch_size, args.type)
+        agent = LogLinearAgent(args.lr, args.loglinear_d0, args.W)
 
     set_seed(args.seed)
 
@@ -77,10 +89,7 @@ if __name__ == "__main__":
             shutil.copy(fn, os.path.join(logdir, "code"))
     
     n = args.n - args.d
-    num_episode = (args.N - args.n + 1) // args.d * args.phase_episode
-
-    env = CSPEnv(args.batch_size, args.type)
-    agent = LogLinearAgent(args.lr, args.regular_lambda, args.loglinear_d0)
+    num_episode = ((args.N - args.n) // args.d + 1) * args.phase_episode
 
     running_reward, running_loss = [0 for _ in range(num_episode // args.curve_buffer_size)], [0 for _ in range(num_episode // args.curve_buffer_size)]
     reward_buf, loss_buf = 0, 0

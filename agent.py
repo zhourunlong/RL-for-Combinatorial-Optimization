@@ -6,6 +6,7 @@ import torch.optim as optim
 from torch import autograd
 from torch.autograd import Variable
 
+''' Not compatible.
 class SoftmaxTabularAgent():
     def __init__(self, n, lr=1e-3, regular_lambda=1e-4):
         self.n = n
@@ -135,16 +136,15 @@ class NeuralNetworkAgent():
             params = self.NN(inputs)
             probs = F.softmax(params, dim=-1)
         return probs[:, 0].view(-1,)
+'''
 
 class LogLinearAgent():
-    def __init__(self, lr=1e-3, regular_lambda=1e-4, d0=5):
+    def __init__(self, lr=1e-3, d0=10, W=1000):
         self.d0 = d0
         self.d = d0 * 2
         self.theta = torch.zeros((self.d, 1), dtype=torch.double, device="cuda")
         self.lr = lr
-        self.regular_lambda = regular_lambda
-        if regular_lambda != 0:
-            print("Regular lambda not used in log-linear policy!")
+        self.W = W
     
     def update_n(self, n):
         self.n = n
@@ -219,18 +219,30 @@ class LogLinearAgent():
         rewards -= baseline
         loss = -(log_probs * rewards).mean()
 
-        # no regularizer!!!!
         rewards.unsqueeze_(1)
         grads = -torch.matmul(rewards, grads_logp).transpose(1, 2).mean(0) / rewards.shape[2]
 
         F = torch.matmul(grads_logp.view(-1, self.d, 1), grads_logp.view(-1, 1, self.d)).mean(0)
-        
-        grads = torch.matmul(F.pinverse(), grads)
-        norm = torch.norm(grads)
-        if norm > 100:
-            grads *= 10 / norm.sqrt()
+
+        #grads, _ = torch.lstsq(grads, F)
+
+        #print(grads)
+        grads = torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
+        #print(grads)
+        #exit(0)
+
+        #norm = torch.norm(grads)
+        #if norm > 10:
+        #    grads *= 10 / norm
 
         self.theta -= self.lr * grads
+
+        #project to W ball
+        norm = torch.norm(self.theta)
+        if norm > self.W:
+            self.theta *= self.W / norm
+        
+        #print(norm)
 
         return baseline.detach().cpu(), loss.detach().cpu()
     
