@@ -227,7 +227,7 @@ class LogLinearAgent():
         #grads, _ = torch.lstsq(grads, F)
 
         #print(grads)
-        grads = torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
+        grads = torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).inverse(), grads)
         #print(grads)
         #exit(0)
 
