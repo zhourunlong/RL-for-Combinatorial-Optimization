@@ -91,9 +91,8 @@ if __name__ == "__main__":
     n = args.n - args.d
     num_episode = ((args.N - args.n) // args.d + 1) * args.phase_episode
 
-    running_reward = [0 for _ in range(num_episode // args.curve_buffer_size)]
-    running_kappa = [0 for _ in range(num_episode // args.curve_buffer_size)]
-    reward_buf, kappa_buf = 0, 0
+    running_reward, running_loss = [0 for _ in range(num_episode // args.curve_buffer_size)], [0 for _ in range(num_episode // args.curve_buffer_size)]
+    reward_buf, loss_buf = 0, 0
 
     with tqdm(range(num_episode), desc="Training") as pbar:
         for episode in pbar:
@@ -110,35 +109,35 @@ if __name__ == "__main__":
             else:
                 env.reset(False)
 
-            acts, rewards, reward0s, phis = [], [], [], []
+            states, rewards, probs, log_probs, entropies, grads_logp = [], [], [], [], [], []
             for step in range(n):
                 state = env.get_state()
-                action, phit = agent.get_action(state)
-                print(action)
-                active, reward, reward0 = env.get_reward(action)
+                action, prob, log_prob, grad_logp = agent.get_action(state)
+                reward = env.get_reward(action)
                 
-                acts.append(active)
+                states.append(state)
                 rewards.append(reward)
-                reward0s.append(reward0)
-                phis.append(phit)
+                probs.append(prob)
+                log_probs.append(log_prob)
+                grads_logp.append(grad_logp)
             
-            reward = agent.update_param(acts, rewards, reward0s, phis)
+            reward, loss = agent.update_param(states, rewards, probs, log_probs, grads_logp)
             reward_buf += reward
+            loss_buf += loss
 
-            kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi).detach().cpu()
-            kappa_buf += kappa
+            kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
 
             if (episode + 1) % args.curve_buffer_size == 0:
                 idx = episode // args.curve_buffer_size
                 running_reward[idx] = reward_buf / args.curve_buffer_size
-                running_kappa[idx] = kappa_buf / args.curve_buffer_size
-                reward_buf, kappa_buf = 0, 0
+                running_loss[idx] = loss_buf / args.curve_buffer_size
+                reward_buf, loss_buf = 0, 0
         
-            pbar.set_description("Epi: %d, N: %d, R: %2.4f, K: %3.3f" % (episode, n, reward, kappa))
+            pbar.set_description("Epi: %d, N: %d, R: %2.4f, L: %2.4f, K: %3.3f" % (episode, n, reward, loss, kappa))
 
             if (episode + 1) % args.save_episode == 0:
                 savepath = os.path.join(logdir, "models/%08d.pt" % (episode))
                 package = {"agent":agent, "env":env}
                 torch.save(package, savepath)
                 plot_prob_fig(agent, env, os.path.join(logdir, "results/visualize%08d.jpg" % (episode)))
-                plot_rl_fig(running_reward, running_kappa, os.path.join(logdir, "results/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)
+                plot_rl_fig(running_reward, running_loss, os.path.join(logdir, "results/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)

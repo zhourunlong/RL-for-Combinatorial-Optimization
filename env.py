@@ -21,7 +21,7 @@ class CSPEnv():
         
         self.active = torch.ones((self.bs,), dtype=torch.double, device="cuda")
 
-        print(self.v)
+        #print(self.v)
     
     def get_state(self):
         return [torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device="cuda"), self.v[:, self.i].double()]
@@ -29,13 +29,11 @@ class CSPEnv():
     def get_reward(self, action):
         raw_reward = 2 * (self.argmax == self.i).double() - 1
         self.i += 1
-        ret0 = self.active * raw_reward
         if self.i == self.n:
-            return self.active, self.active * ((1 - action) * raw_reward - action), ret0
-        ret = (1 - action) * ret0
-        ract = self.active.clone()
+            return self.active * ((1 - action) * raw_reward - action)
+        ret = (1 - action) * self.active * raw_reward
         self.active *= action
-        return ract, ret, ret0
+        return ret
 
 if __name__ == "__main__":
     env = CSPEnv(5, 3)
