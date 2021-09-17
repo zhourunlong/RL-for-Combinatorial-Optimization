@@ -28,14 +28,14 @@ def plot_prob_fig(agent, env, pic_dir):
     plt.yticks(fontsize=30)
 
     x = np.array([_ / agent.n for _ in range(agent.n + 1)])
-    ax.plot(x, np.concatenate((np.zeros(1,), np.array(max_acc))), label="P[Accept|SufMax]")
-    ax.plot(x, np.concatenate((np.zeros(1,), np.array(non_max_acc))), label="P[Accept|NotSufMax]")
+    ax.plot(x, np.concatenate((np.zeros(1,), np.array(max_acc))), "b-", label="P[Accept|SufMax]")
+    ax.plot(x, np.concatenate((np.zeros(1,), np.array(non_max_acc))), "y--", label="P[Accept|NotSufMax]")
 
     idx = opt_tabular(env.probs.cpu().numpy())
     y = np.zeros_like(x)
     for i in idx:
         y[i] = 1
-    ax.plot(x, y, label="Optimal")
+    ax.plot(x, y, "g--", label="Optimal")
 
     ax.set_title("Plot of acceptance probability", fontsize=40)
     ax.set_xlabel("Time", fontsize=40)
@@ -45,7 +45,7 @@ def plot_prob_fig(agent, env, pic_dir):
     plt.savefig(pic_dir)
     plt.close()
 
-def plot_rl_fig(reward, loss, pic_dir, curve_buffer_size, len_avail):
+def plot_rl_fig(reward, kappa, pic_dir, curve_buffer_size, len_avail):
     fig, ax1 = plt.subplots(figsize=(40, 20))
 
     plt.xticks(fontsize=30)
@@ -54,12 +54,12 @@ def plot_rl_fig(reward, loss, pic_dir, curve_buffer_size, len_avail):
     ax2 = ax1.twinx()
 
     x = np.array([_ * curve_buffer_size for _ in range(len_avail)])
-    line1, = ax1.plot(x, reward[:len_avail], "g-", label="Reward")
-    line2, = ax2.plot(x, loss[:len_avail], "b--", label="Loss")
+    line1, = ax1.plot(x, reward[:len_avail], "g--", label="Reward")
+    line2, = ax2.plot(x, kappa[:len_avail], "b--", label="Kappa")
 
     plt.title("Plot of training curve", fontsize=40)
     ax1.set_xlabel("Episode", fontsize=40)
-    plt.legend((line1, line2), ("Reward", "Loss"), loc="best", fontsize=40)
+    plt.legend((line1, line2), ("Reward", "Kappa"), loc="best", fontsize=40)
 
     plt.savefig(pic_dir)
     plt.close()
