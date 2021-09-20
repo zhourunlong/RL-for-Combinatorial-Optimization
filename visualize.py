@@ -78,11 +78,12 @@ if __name__ == "__main__":
     assert success
 
     x = torch.tensor(x).double().cuda()
+    print("agent norm:", torch.norm(agent.theta).item())
+    plot_prob_fig(agent, env, "visualize_agent.jpg")
+
     agent.theta = x.view_as(agent.theta)
-
-    print(torch.norm(x))
-
-    plot_prob_fig(agent, env, "visualize.jpg")
+    print("optimal norm:", torch.norm(x).item())
+    plot_prob_fig(agent, env, "visualize_optimal.jpg")
 
     states_1 = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.ones((agent.n,), dtype=torch.double, device="cuda")]
     states_0 = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.zeros((agent.n,), dtype=torch.double, device="cuda")]

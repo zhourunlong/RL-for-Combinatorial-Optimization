@@ -175,7 +175,7 @@ class LogLinearAgent():
     def get_action(self, state):
         phi = self.get_phi_batch(state[0], state[1])
 
-        params = torch.matmul(phi, self.theta)
+        params = phi @ self.theta
         params = torch.cat([params, torch.zeros_like(params)], dim=-1)
 
         probs = F.softmax(params, dim=-1)
@@ -194,50 +194,40 @@ class LogLinearAgent():
     
     def get_policy(self):
         phi = self.get_phi_all().view(2 * self.n, -1)
+        return torch.sigmoid(phi @ self.theta).view(self.n, 2)
         
-        params = torch.matmul(phi, self.theta)
-        params = torch.cat([params, torch.zeros_like(params)], dim=-1)
+    def update_param(self, states, actions, rewards, rs0s, acts, probs, log_probs, grads_logp):        
+        fractions = torch.stack(states[0]).view(-1,)
+        indicators = torch.stack(states[1]).view(-1,)
+        bs = states[0][0].shape[0]
+        phis = self.get_phi_batch(fractions, indicators).view(self.n, bs, -1)
+        pi = torch.sigmoid(phis @ self.theta).squeeze(-1)
 
-        probs = F.softmax(params, dim=-1)
+        V = torch.zeros((self.n + 1, bs), dtype=torch.double, device="cuda")
+        Q = torch.zeros((self.n, bs), dtype=torch.double, device="cuda")
+        V[-1] = -1
+        for i in range(self.n - 1, -1, -1):
+            V[i, :] = pi[i, :] * rs0s[i] + (1 - pi[i, :]) * V[i + 1, :]
+            Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1])
 
-        return probs[:, 0].view(self.n, 2)
-        
-    def update_param(self, states, rewards, probs, log_probs, grads_logp):
-        states.reverse()
-        rewards.reverse()
-        probs.reverse()
-        log_probs.reverse()
-        grads_logp.reverse()
-        
-        rewards = torch.stack(rewards)
+        acts = torch.stack(acts)
         probs = torch.stack(probs)
-        log_probs = torch.stack(log_probs)
-        grads_logp = torch.stack(grads_logp)
+        actions = torch.stack(actions)
         
-        rewards = rewards.cumsum(0)
-        baseline = rewards[-1].mean()
-        rewards -= baseline
-        loss = -(log_probs * rewards).mean()
+        Q *= acts
 
-        rewards.unsqueeze_(1)
-        grads = torch.matmul(rewards, grads_logp).transpose(1, 2).mean(0) / rewards.shape[2]
+        grads_logp = ((1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
+        grads = (Q.unsqueeze(1) @ grads_logp).transpose(1, 2).mean(0) / bs
+        F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
 
-        F = torch.matmul(grads_logp.view(-1, self.d, 1), grads_logp.view(-1, 1, self.d)).mean(0)
-
-        #grads, _ = torch.lstsq(grads, F)
-
-        #print(grads)
+        #grads, _ = torch.lstsq(grads, F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda"))
         grads = torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
 
-        #print(grads)
-        #print(grads)
-        #exit(0)
+        norm = torch.norm(grads)
+        if norm > 10:
+            grads *= 10 / norm
 
-        #norm = torch.norm(grads)
-        #if norm > 10:
-        #    grads *= 10 / norm
-
-        self.theta += self.lr * grads
+        self.theta += self.lr * self.n * grads
 
         #project to W ball
         norm = torch.norm(self.theta)
@@ -245,9 +235,7 @@ class LogLinearAgent():
             self.theta *= self.W / norm
         
         #print(norm)
-
-        return baseline.detach().cpu(), loss.detach().cpu()
-    
+     
     def get_logits(self, state):
         phi = self.get_phi_batch(state[0], state[1])
 
