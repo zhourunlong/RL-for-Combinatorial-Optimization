@@ -179,24 +179,24 @@ class LogLinearAgent():
         params = torch.cat([params, torch.zeros_like(params)], dim=-1)
 
         probs = F.softmax(params, dim=-1)
-        log_probs = F.log_softmax(params, dim=-1)
+        #log_probs = F.log_softmax(params, dim=-1)
 
         action = probs.multinomial(1)
         prob = probs.gather(1, action).view(-1,)
-        log_prob = log_probs.gather(1, action).view(-1,)
+        #log_prob = log_probs.gather(1, action).view(-1,)
         #entropy = -(probs * log_probs).sum(-1)
 
         action = action.double()
 
-        grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action) * phi
+        #grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action) * phi
 
-        return action.view(-1,), prob, log_prob, grad_logp
+        return action.view(-1,), prob
     
     def get_policy(self):
         phi = self.get_phi_all().view(2 * self.n, -1)
         return torch.sigmoid(phi @ self.theta).view(self.n, 2)
         
-    def update_param(self, states, actions, rewards, rs0s, acts, probs, log_probs, grads_logp):        
+    def update_param(self, states, actions, rs0s, acts, probs):        
         fractions = torch.stack(states[0]).view(-1,)
         indicators = torch.stack(states[1]).view(-1,)
         bs = states[0][0].shape[0]
@@ -216,7 +216,7 @@ class LogLinearAgent():
         
         Q *= acts
 
-        grads_logp = ((1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
+        grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
         grads = (Q.unsqueeze(1) @ grads_logp).transpose(1, 2).mean(0) / bs
         F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
 

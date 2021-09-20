@@ -41,11 +41,11 @@ def set_seed(seed):
 	torch.backends.cudnn.deterministic = True
 
 def collect_data(agent, env):
-    state0s, state1s, actions, rewards, rs0s, acts, probs, log_probs, grads_logp = [], [], [], [], [], [], [], [], []
+    state0s, state1s, actions, rewards, rs0s, acts, probs = [], [], [], [], [], [], []
 
     for step in range(env.n):
         state0, state1 = env.get_state()
-        action, prob, log_prob, grad_logp = agent.get_action((state0, state1))
+        action, prob = agent.get_action((state0, state1))
         reward, rs0, active = env.get_reward(action)
         
         state0s.append(state0)
@@ -55,10 +55,10 @@ def collect_data(agent, env):
         rs0s.append(rs0)
         acts.append(active)
         probs.append(prob)
-        log_probs.append(log_prob)
-        grads_logp.append(grad_logp)
+        #log_probs.append(log_prob)
+        #grads_logp.append(grad_logp)
     
-    return (state0s, state1s), actions, rewards, rs0s, acts, probs, log_probs, grads_logp
+    return (state0s, state1s), actions, rewards, rs0s, acts, probs
 
 if __name__ == "__main__":
     args = get_args()
@@ -135,11 +135,11 @@ if __name__ == "__main__":
             else:
                 env.reset(False)
 
-            states, actions, rewards, rs0s, acts, probs, log_probs, grads_logp = collect_data(agent0, env)
-            agent.update_param(states, actions, rewards, rs0s, acts, probs, log_probs, grads_logp)
+            states, actions, rewards, rs0s, acts, probs = collect_data(agent0, env)
+            agent.update_param(states, actions, rs0s, acts, probs)
 
             env.reset_i()
-            _, _, rewards, _, _, _, _, _ = collect_data(agent, env)
+            _, _, rewards, _, _, _ = collect_data(agent, env)
             reward = (torch.stack(rewards).sum() / args.batch_size).cpu().numpy()
             reward_buf += reward
 
