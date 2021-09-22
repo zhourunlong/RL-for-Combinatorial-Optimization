@@ -45,7 +45,7 @@ def plot_prob_fig(agent, env, pic_dir):
     plt.savefig(pic_dir)
     plt.close()
 
-def plot_rl_fig(reward, loss, pic_dir, curve_buffer_size, len_avail):
+def plot_rl_fig(val1, label1, val2, label2, pic_dir, curve_buffer_size, len_avail):
     fig, ax1 = plt.subplots(figsize=(40, 20))
 
     plt.xticks(fontsize=30)
@@ -54,12 +54,12 @@ def plot_rl_fig(reward, loss, pic_dir, curve_buffer_size, len_avail):
     ax2 = ax1.twinx()
 
     x = np.array([_ * curve_buffer_size for _ in range(len_avail)])
-    line1, = ax1.plot(x, reward[:len_avail], "g-", label="Reward")
-    line2, = ax2.plot(x, loss[:len_avail], "b--", label="Loss")
+    line1, = ax1.plot(x, val1[:len_avail], "g-", label=label1)
+    line2, = ax2.plot(x, val2[:len_avail], "b--", label=label2)
 
     plt.title("Plot of training curve", fontsize=40)
     ax1.set_xlabel("Episode", fontsize=40)
-    plt.legend((line1, line2), ("Reward", "Loss"), loc="best", fontsize=40)
+    plt.legend((line1, line2), (label1, label2), loc="best", fontsize=40)
 
     plt.savefig(pic_dir)
     plt.close()

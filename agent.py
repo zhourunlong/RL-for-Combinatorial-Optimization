@@ -203,38 +203,43 @@ class LogLinearAgent():
         phis = self.get_phi_batch(fractions, indicators).view(self.n, bs, -1)
         pi = torch.sigmoid(phis @ self.theta).squeeze(-1)
 
-        V = torch.zeros((self.n + 1, bs), dtype=torch.double, device="cuda")
-        Q = torch.zeros((self.n, bs), dtype=torch.double, device="cuda")
-        V[-1] = -1
-        for i in range(self.n - 1, -1, -1):
-            V[i, :] = pi[i, :] * rs0s[i] + (1 - pi[i, :]) * V[i + 1, :]
-            Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1])
+        #V = torch.zeros((self.n + 1, bs), dtype=torch.double, device="cuda")
+        #Q = torch.zeros((self.n, bs), dtype=torch.double, device="cuda")
+        #V[-1] = -1
+        #for i in range(self.n - 1, -1, -1):
+        #    V[i, :] = pi[i, :] * rs0s[i] + (1 - pi[i, :]) * V[i + 1, :]
+        #    Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1])
+
+        rs0s = torch.stack(rs0s)
 
         acts = torch.stack(acts)
         probs = torch.stack(probs)
         actions = torch.stack(actions)
         
-        Q *= acts
+        #Q *= acts
+        rs0s *= acts
 
-        grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
-        grads = (Q.unsqueeze(1) @ grads_logp).transpose(1, 2).mean(0) / bs
+        #grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
+        grads_logp = acts.unsqueeze(-1) * phis
+        grads = (rs0s.unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
         F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
 
-        #grads, _ = torch.lstsq(grads, F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda"))
-        grads = torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
+        grads = self.n * torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
 
-        norm = torch.norm(grads)
-        if norm > 10:
-            grads *= 10 / norm
+        grad_norm = torch.norm(grads)
+        if grad_norm > 10:
+            grads *= 10 / grad_norm
 
-        self.theta += self.lr * self.n * grads
+        self.theta += self.lr * grads
 
         #project to W ball
         norm = torch.norm(self.theta)
         if norm > self.W:
             self.theta *= self.W / norm
         
-        #print(norm)
+        #print(torch.cat((self.theta, grads), dim=1))
+        
+        #print("grad norm", grad_norm.item(), "norm", norm.item())
      
     def get_logits(self, state):
         phi = self.get_phi_batch(state[0], state[1])

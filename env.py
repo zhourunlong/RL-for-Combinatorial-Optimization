@@ -13,7 +13,7 @@ class CSPEnv():
                 self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device="cuda")
             else:
                 tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device="cuda")
-                self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device="cuda"), tmp.pow(2 * torch.rand(self.n - 1, dtype=torch.double, device="cuda"))))
+                self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device="cuda"), tmp.pow(0.25 + 2 * torch.rand(self.n - 1, dtype=torch.double, device="cuda"))))
 
         if reset_perm:
             self.v = self.probs.repeat(self.bs, 1).bernoulli()
@@ -33,7 +33,7 @@ class CSPEnv():
         self.i += 1
         if self.i == self.n:
             return self.active * ((1 - action) * raw_reward - action), raw_reward, self.active
-        ret = (1 - action) * self.active * raw_reward
+        ret = self.active * (1 - action) * raw_reward
         ract = self.active.clone()
         self.active *= action
         return ret, raw_reward, ract

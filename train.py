@@ -40,7 +40,7 @@ def set_seed(seed):
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
 
-def collect_data(agent, env):
+def collect_data(agent, env, rewards_only=False):
     state0s, state1s, actions, rewards, rs0s, acts, probs = [], [], [], [], [], [], []
 
     for step in range(env.n):
@@ -48,17 +48,21 @@ def collect_data(agent, env):
         action, prob = agent.get_action((state0, state1))
         reward, rs0, active = env.get_reward(action)
         
-        state0s.append(state0)
-        state1s.append(state1)
-        actions.append(action)
         rewards.append(reward)
-        rs0s.append(rs0)
-        acts.append(active)
-        probs.append(prob)
+        if rewards_only == False:
+            state0s.append(state0)
+            state1s.append(state1)
+            actions.append(action)
+            rs0s.append(rs0)
+            acts.append(active)
+            probs.append(prob)
         #log_probs.append(log_prob)
         #grads_logp.append(grad_logp)
     
-    return (state0s, state1s), actions, rewards, rs0s, acts, probs
+    if rewards_only:
+        return rewards
+    else:
+        return (state0s, state1s), actions, rewards, rs0s, acts, probs
 
 if __name__ == "__main__":
     args = get_args()
@@ -89,6 +93,10 @@ if __name__ == "__main__":
         print(logits_1, logits_0)
 
         plot_prob_fig(agent, env, "visualize.jpg")
+
+        #(success, x) = opt_loglinear(env.n, agent.d0, 5, (idx[-1] - 0.5) / env.n)
+        #x = torch.tensor(x).double().cuda()
+        #agent.theta = x.view_as(agent.theta)
 
         args.n = env.n
     else:
@@ -126,6 +134,7 @@ if __name__ == "__main__":
                     agent0 = copy.deepcopy(agent)
                 else:
                     agent0 = agent
+                #agent0 = copy.deepcopy(agent)
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())
@@ -135,11 +144,12 @@ if __name__ == "__main__":
             else:
                 env.reset(False)
 
+            #print(env.probs)
             states, actions, rewards, rs0s, acts, probs = collect_data(agent0, env)
             agent.update_param(states, actions, rs0s, acts, probs)
 
             env.reset_i()
-            _, _, rewards, _, _, _ = collect_data(agent, env)
+            rewards = collect_data(agent, env, True)
             reward = (torch.stack(rewards).sum() / args.batch_size).cpu().numpy()
             reward_buf += reward
 
@@ -159,4 +169,4 @@ if __name__ == "__main__":
                 package = {"agent":agent, "env":env}
                 torch.save(package, savepath)
                 plot_prob_fig(agent, env, os.path.join(logdir, "results/visualize%08d.jpg" % (episode)))
-                plot_rl_fig(running_reward, running_kappa, os.path.join(logdir, "results/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)
+                plot_rl_fig(running_reward, "Reward", running_kappa, "Kappa", os.path.join(logdir, "results/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)
