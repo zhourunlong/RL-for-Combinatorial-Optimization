@@ -222,15 +222,21 @@ class LogLinearAgent():
         #grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
         grads_logp = acts.unsqueeze(-1) * phis
         grads = (rs0s.unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
-        F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
+        F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0) + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")
 
-        grads = self.n * torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
+        grads = torch.linalg.lstsq(F, grads).solution
 
-        grad_norm = torch.norm(grads)
-        if grad_norm > 10:
-            grads *= 10 / grad_norm
+        #grads = torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
+        #grads = torch.matmul(F.pinverse(), grads)
 
-        self.theta += self.lr * grads
+        #rgrads = (rs0s.unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
+        #print(torch.norm(F @ grads - rgrads).item() - torch.norm(F @ grads_ - rgrads).item())
+
+        #grad_norm = torch.norm(grads)
+        #if grad_norm > 10:
+        #    grads *= 10 / grad_norm
+
+        self.theta += self.lr * self.n * grads
 
         #project to W ball
         norm = torch.norm(self.theta)

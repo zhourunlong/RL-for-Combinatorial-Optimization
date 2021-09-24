@@ -10,13 +10,14 @@ import torch
 import random
 import time
 import copy
+from math import sqrt
 from calculate_opt_policy import *
 from calculate_kappa import *
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch-size", default=5000, type=int)
-    parser.add_argument("--lr", default=0.01, type=float)
+    #parser.add_argument("--lr", default=0.01, type=float)
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--N", default=100, type=int)
     parser.add_argument("--d", default=10, type=int)
@@ -67,6 +68,8 @@ def collect_data(agent, env, rewards_only=False):
 if __name__ == "__main__":
     args = get_args()
 
+    lr = 2 / sqrt(2 * args.loglinear_d0 * args.phase_episode)
+
     assert (args.N - args.n) % args.d == 0
     assert args.save_episode % args.curve_buffer_size == 0
 
@@ -101,7 +104,7 @@ if __name__ == "__main__":
         args.n = env.n
     else:
         env = CSPEnv(args.batch_size, args.type)
-        agent = LogLinearAgent(args.lr, args.loglinear_d0, args.W)
+        agent = LogLinearAgent(lr, args.loglinear_d0, args.W)
 
     set_seed(args.seed)
 
@@ -134,7 +137,6 @@ if __name__ == "__main__":
                     agent0 = copy.deepcopy(agent)
                 else:
                     agent0 = agent
-                #agent0 = copy.deepcopy(agent)
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())

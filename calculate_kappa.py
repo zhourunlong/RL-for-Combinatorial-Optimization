@@ -21,7 +21,7 @@ def calc_kappa(probs, policy_star, policy_t, phi):
     sigma_star = calc_sigma(probs, policy_star, policy_t, phi)
     sigma_t = calc_sigma(probs, policy_t, policy_t, phi)
     
-    S, U = torch.symeig(sigma_t, eigenvectors=True)
+    S, U = torch.linalg.eigh(sigma_t)
 
     sqinv = 1 / S.sqrt()
     above_cutoff = S > 1e-12
@@ -30,5 +30,5 @@ def calc_kappa(probs, policy_star, policy_t, phi):
     
     st = U @ torch.diag(sqinv) @ U.T
 
-    e, _ = torch.symeig(st @ sigma_star @ st)
+    e, _ = torch.linalg.eigh(st @ sigma_star @ st)
     return e[-1]
