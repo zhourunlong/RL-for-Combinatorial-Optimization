@@ -1,32 +1,35 @@
 import torch
 
 class CSPEnv():
-    def __init__(self, bs, type):
+    def __init__(self, bs, type, device):
         self.bs = bs
         self.type = type
+        self.device = device
     
-    def reset(self, reset_perm, reset_n = None):
-        self.i = 0
-        if reset_n is not None:
-            self.n = reset_n
-            if self.type == "uniform":
-                self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device="cuda")
-            else:
-                tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device="cuda")
-                self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device="cuda"), tmp.pow(0.25 + 2 * torch.rand(self.n - 1, dtype=torch.double, device="cuda"))))
+    def move_device(self, device):
+        self.device = device
+        self.probs.to(self.device)
+        self.v.to(self.device)
+        self.argmax.to(self.device)
+        self.active.to(self.device)
+    
+    def reset_n(self, n):
+        self.n = n
+        if self.type == "uniform":
+            self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device=self.device)
+        else:
+            tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device=self.device)
+            self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device=self.device), tmp.pow(0.25 + 2 * torch.rand(self.n - 1, dtype=torch.double, device=self.device))))
+        self.new_instance()
 
-        if reset_perm:
-            self.v = self.probs.repeat(self.bs, 1).bernoulli()
-            self.argmax = torch.argmax(self.v + torch.arange(self.n, dtype=torch.double, device="cuda") * 1e-5, 1)
-        
-        self.active = torch.ones((self.bs,), dtype=torch.double, device="cuda")
-
-    def reset_i(self):
+    def new_instance(self):
         self.i = 0
-        self.active = torch.ones((self.bs,), dtype=torch.double, device="cuda")
+        self.v = self.probs.repeat(self.bs, 1).bernoulli()
+        self.argmax = torch.argmax(self.v + torch.arange(self.n, dtype=torch.double, device=self.device) * 1e-5, 1)
+        self.active = torch.ones((self.bs,), dtype=torch.double, device=self.device)
 
     def get_state(self):
-        return [torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device="cuda"), self.v[:, self.i].double()]
+        return torch.stack((torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.v[:, self.i].double()), dim=1)
     
     def get_reward(self, action):
         raw_reward = 2 * (self.argmax == self.i).double() - 1
@@ -37,19 +40,4 @@ class CSPEnv():
         ract = self.active.clone()
         self.active *= action
         return ret, raw_reward, ract
-
-if __name__ == "__main__":
-    env = CSPEnv(5, 3)
-    
-    for _ in range(3):
-        print("----- trial", _, "-----")
-        env.reset()
-        env.print_v()
-
-        for i in range(5):
-            action = (torch.rand((3,)) < 0.7).double().cuda()
-            state = env.get_state()
-            print(state[0], state[1], action.int(), env.get_reward(action).int())
-        
-        print("-------------------")
         

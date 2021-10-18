@@ -15,11 +15,11 @@ def get_args():
     parser.add_argument("--load-path", default=None, type=str)
     return parser.parse_args()
 
-def plot_prob_fig(agent, env, pic_dir):
-    states = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.ones((agent.n,), dtype=torch.double, device="cuda")]
+def plot_prob_fig(agent, env, pic_dir, device):
+    states = torch.stack((torch.arange(1, agent.n + 1, dtype=torch.double, device=device) / agent.n, torch.ones((agent.n,), dtype=torch.double, device=device)), dim=1)
     max_acc = agent.get_accept_prob(states).cpu().numpy()
 
-    states = [torch.arange(1, agent.n + 1, dtype=torch.double, device="cuda") / agent.n, torch.zeros((agent.n,), dtype=torch.double, device="cuda")]
+    states = torch.stack((torch.arange(1, agent.n + 1, dtype=torch.double, device=device) / agent.n, torch.zeros((agent.n,), dtype=torch.double, device=device)), dim=1)
     non_max_acc = agent.get_accept_prob(states).cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(20, 20))

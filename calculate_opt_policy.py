@@ -3,7 +3,7 @@ from fractions import Fraction
 from decimal import Decimal
 import numpy as np
 from scipy.optimize import linprog
-import cvxpy as cp
+#import cvxpy as cp
 import math
 
 def get_args():
@@ -48,6 +48,7 @@ def opt_tabular(probs):
     
     return ret
 
+'''
 def opt_loglinear(n, d0, M, th=math.exp(-1)):
     d = d0 * 2
     A_ub = np.zeros((2 * n, d))
@@ -67,6 +68,7 @@ def opt_loglinear(n, d0, M, th=math.exp(-1)):
     prob.solve(solver=cp.OSQP, max_iter=1000000, verbose=False)
 
     return prob.status == "optimal", x.value
+'''
 
 if __name__ == "__main__":
     args = get_args()

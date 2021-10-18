@@ -4,7 +4,7 @@ import torch
 def calc_distr(probs, policy):
     pr_rej = probs * (1 - policy[:, 1]) + (1 - probs) * (1 - policy[:, 0])
     df = pr_rej.cumprod(dim=0)
-    df = torch.cat((torch.ones((1,), dtype=torch.double, device="cuda"), df[:-1]))
+    df = torch.cat((torch.ones((1,), dtype=torch.double, device=df.device), df[:-1]))
     df1 = df * probs
     dfx = torch.stack((df - df1, df1), dim=1)
     return dfx
@@ -21,7 +21,7 @@ def calc_kappa(probs, policy_star, policy_t, phi):
     sigma_star = calc_sigma(probs, policy_star, policy_t, phi)
     sigma_t = calc_sigma(probs, policy_t, policy_t, phi)
     
-    S, U = torch.linalg.eigh(sigma_t)
+    S, U = torch.symeig(sigma_t, eigenvectors=True)
 
     sqinv = 1 / S.sqrt()
     above_cutoff = S > 1e-12
@@ -30,5 +30,5 @@ def calc_kappa(probs, policy_star, policy_t, phi):
     
     st = U @ torch.diag(sqinv) @ U.T
 
-    e, _ = torch.linalg.eigh(st @ sigma_star @ st)
+    e = torch.symeig(st @ sigma_star @ st)[0]
     return e[-1]
