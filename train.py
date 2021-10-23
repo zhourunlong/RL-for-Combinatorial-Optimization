@@ -17,19 +17,22 @@ from calculate_kappa import *
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", type=str)
-    parser.add_argument("--batch-size", default=5000, type=int)
-    #parser.add_argument("--lr", default=0.01, type=float)
+    parser.add_argument("--batch-size", default=4500, type=int)
+    parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--N", default=100, type=int)
     parser.add_argument("--d", default=10, type=int)
-    parser.add_argument("--W", default=1000, type=float)
+    parser.add_argument("--W", default=10, type=float)
     parser.add_argument("--save-episode", default=1000, type=int)
     parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
-    parser.add_argument("--d0", default=20, type=int)
+    parser.add_argument("--d0", default=10, type=int)
+    parser.add_argument("--L", default=0.001, type=float)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
     parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
     parser.add_argument("--load-path", default=None, type=str)
+    parser.add_argument("--rwd-succ", default=1, type=float)
+    parser.add_argument("--rwd-fail", default=-1, type=float)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -43,32 +46,40 @@ def set_seed(seed):
 	torch.backends.cudnn.deterministic = True
 
 def collect_data(agent, env, rewards_only=False):
-    states, actions, rewards, rs0s, acts, probs = [], [], [], [], [], []
+    rewards = []
 
-    for step in range(env.n):
-        state = env.get_state()
-        action, prob = agent.get_action(state)
-        reward, rs0, active = env.get_reward(action)
-        
-        rewards.append(reward)
-        if rewards_only == False:
-            states.append(state)
-            actions.append(action)
-            rs0s.append(rs0)
-            acts.append(active)
-            probs.append(prob)
-        #log_probs.append(log_prob)
-        #grads_logp.append(grad_logp)
-    
     if rewards_only:
+        for step in range(env.n):
+            state = env.get_state()
+            action, _, _ = agent.get_action(state)
+            reward, _, _ = env.get_reward(action)
+            
+            rewards.append(reward)
+
         return rewards
     else:
-        return states, actions, rewards, rs0s, acts, probs
+        states, actions, probs, entropies, rs0s, acts = [], [], [], [], [], []
+
+        for step in range(env.n):
+            state = env.get_state()
+            action, prob, entropy = agent.get_action(state)
+            reward, rs0, active = env.get_reward(action)
+            
+            
+            states.append(state)
+            actions.append(action)
+            probs.append(prob)
+            entropies.append(entropy)
+            rewards.append(reward)
+            rs0s.append(rs0)
+            acts.append(active)
+
+        return states, actions, probs, entropies, rewards, rs0s, acts
 
 if __name__ == "__main__":
     args = get_args()
 
-    lr = 2 / sqrt(2 * args.d0 * args.phase_episode)
+    #args.lr = 2 / sqrt(2 * args.d0 * args.phase_episode)
 
     assert (args.N - args.n) % args.d == 0
     assert args.save_episode % args.curve_buffer_size == 0
@@ -77,9 +88,9 @@ if __name__ == "__main__":
 
     logdir = "Experiment-{}".format(time.strftime("%Y%m%d-%H%M%S"))
     os.makedirs(logdir, exist_ok=True)
-    os.makedirs(os.path.join(logdir, "models"), exist_ok=True)
+    os.makedirs(os.path.join(logdir, "checkpoint"), exist_ok=True)
     os.makedirs(os.path.join(logdir, "code"), exist_ok=True)
-    os.makedirs(os.path.join(logdir, "results"), exist_ok=True)
+    os.makedirs(os.path.join(logdir, "result"), exist_ok=True)
     print("Experiment dir: {}".format(logdir))
 
     dirs = os.listdir(".")
@@ -114,8 +125,8 @@ if __name__ == "__main__":
 
         args.n = env.n
     else:
-        env = CSPEnv(args.batch_size, args.type, args.device)
-        agent = CSPLogLinearAgent(lr, args.d0, args.W, args.device)
+        env = CSPEnv(args.batch_size, args.type, args.device, args.rwd_succ, args.rwd_fail)
+        agent = CSPLogLinearAgent(args.lr, args.d0, args.L, args.W, args.device)
         
         envs = []
         for n in range(args.N, args.n - args.d, -args.d):
@@ -140,10 +151,11 @@ if __name__ == "__main__":
                 envs.pop(0)
                 env = envs[0]
 
-                if episode > 0:
-                    agent0 = copy.deepcopy(agent)
-                else:
-                    agent0 = agent
+                #if episode > 0:
+                #    agent0 = copy.deepcopy(agent)
+                #else:
+                #    agent0 = agent
+                agent0 = agent
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())
@@ -153,8 +165,8 @@ if __name__ == "__main__":
             else:
                 env.new_instance()
 
-            states, actions, rewards, rs0s, acts, probs = collect_data(agent0, env)
-            agent.update_param(states, actions, rs0s, acts, probs)
+            states, actions, probs, entropies, rewards, rs0s, acts = collect_data(agent0, env)
+            agent.update_param(states, actions, probs, entropies, rs0s, acts)
 
             env.new_instance()
             rewards = collect_data(agent, env, True)
@@ -173,8 +185,7 @@ if __name__ == "__main__":
             pbar.set_description("Epi: %d, N: %d, R: %2.4f, K: %3.3f" % (episode, n, reward, kappa))
 
             if (episode + 1) % args.save_episode == 0:
-                savepath = os.path.join(logdir, "models/%08d.pt" % (episode))
                 package = {"agent":agent, "envs":envs}
-                torch.save(package, savepath)
-                plot_prob_fig(agent, env, os.path.join(logdir, "results/visualize%08d.jpg" % (episode)), args.device)
-                plot_rl_fig(running_reward, "Reward", running_kappa, "Kappa", os.path.join(logdir, "results/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)
+                torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
+                plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
+                plot_rl_fig(running_reward, "Reward", running_kappa, "Kappa", os.path.join(logdir, "result/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)

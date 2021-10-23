@@ -7,10 +7,11 @@ from torch import autograd
 from torch.autograd import Variable
 
 class CSPLogLinearAgent():
-    def __init__(self, lr, d0, W, device):
+    def __init__(self, lr, d0, L, W, device):
+        self.lr = lr
         self.d0 = d0
         self.d = d0 * 2
-        self.lr = lr
+        self.L = L
         self.W = W
         self.device = device
 
@@ -49,62 +50,67 @@ class CSPLogLinearAgent():
         params = torch.cat([params, torch.zeros_like(params)], dim=-1)
 
         probs = F.softmax(params, dim=-1)
-        #log_probs = F.log_softmax(params, dim=-1)
+        log_probs = F.log_softmax(params, dim=-1)
 
         action = probs.multinomial(1)
         prob = probs.gather(1, action).view(-1,)
         #log_prob = log_probs.gather(1, action).view(-1,)
-        #entropy = -(probs * log_probs).sum(-1)
+        entropy = -(probs * log_probs).sum(-1)
 
         action = action.double()
 
         #grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action) * phi
 
-        return action.view(-1,), prob
+        return action.view(-1,), prob, entropy
     
     def get_policy(self):
         phi = self.get_phi_all().view(2 * self.n, -1)
         return torch.sigmoid(phi @ self.theta).view(self.n, 2)
         
-    def update_param(self, states, actions, rs0s, acts, probs):
+    def update_param(self, states, actions, probs, entropies, rs0s, acts):
         bs = states[0].shape[0]
         
         states = torch.cat(states)
-        fractions = states[:, 0]
-        indicators = states[:, 1]
 
         phis = self.get_phi_batch(states).view(self.n, bs, -1)
         pi = torch.sigmoid(phis @ self.theta).squeeze(-1)
 
-        #V = torch.zeros((self.n + 1, bs), dtype=torch.double, device="cuda")
-        #Q = torch.zeros((self.n, bs), dtype=torch.double, device="cuda")
-        #V[-1] = -1
-        #for i in range(self.n - 1, -1, -1):
-        #    V[i, :] = pi[i, :] * rs0s[i] + (1 - pi[i, :]) * V[i + 1, :]
-        #    Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1])
+        V = torch.zeros((self.n + 1, bs), dtype=torch.double, device=self.device)
+        Q = torch.zeros((self.n, bs), dtype=torch.double, device=self.device)
+        V[-1] = -1
+        for i in range(self.n - 1, -1, -1):
+            V[i, :] = pi[i, :] * rs0s[i] + (1 - pi[i, :]) * V[i + 1, :] + self.L * entropies[i]
+            Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1]) - self.L * pi[i, :].log()
 
         rs0s = torch.stack(rs0s)
-
         acts = torch.stack(acts)
         probs = torch.stack(probs)
         actions = torch.stack(actions)
         
-        #Q *= acts
-        rs0s *= acts
+        # NPG
+        grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
+        grads = ((Q * acts).unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
+        F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
 
+        # NPG unif(A)
+        #phis *= acts.unsqueeze(-1)
+        #grads = (0.5 * (((1 - pi) * rs0s - pi * V[1:,:] + (2 * pi - 1) * V[:-1,:]) * acts).unsqueeze(-1) * phis).mean((0, 1)).unsqueeze(-1)
+        #F = ((0.5 * ((1 - pi) ** 2 + pi ** 2).unsqueeze(-1) * phis).view(-1, self.d, 1) @ phis.view(-1, 1, self.d)).mean(0)
+        
+        # NPG unif(A) importance sampling (NOT DONE!)
         #grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
-        grads_logp = acts.unsqueeze(-1) * phis
-        grads = (rs0s.unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
-        F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0) + 1e-6 * torch.eye(self.d, dtype=torch.double, device=self.device)
+        #phis *= acts.unsqueeze(-1)
+        #grads = ((acts / (2 * probs)).unsqueeze(-1) * grads_logp * Q).mean((0, 1)).unsqueeze(-1)
+        #F = ((0.5 * ((1 - pi) ** 2 + pi ** 2).unsqueeze(-1) * phis).view(-1, self.d, 1) @ phis.view(-1, 1, self.d)).mean(0)
 
-        ngrads = torch.lstsq(grads, F).solution[:self.d]
+        # Q-NPG unif(A)
+        #grads_logp = acts.unsqueeze(-1) * phis
+        #grads = ((rs0s * acts).unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
+        #F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
+
+        C = 1e-6
+        ngrads = torch.lstsq(grads, F + C * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
         #ngrads = F.pinverse() @ grads
-
-        #grads = torch.matmul((F + 1e-6 * torch.eye(self.d, dtype=torch.double, device="cuda")).pinverse(), grads)
-        #grads = torch.matmul(F.pinverse(), grads)
-
-        #rgrads = (rs0s.unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
-        #print(torch.norm(F @ grads - rgrads).item() - torch.norm(F @ grads_ - rgrads).item())
 
         norm = torch.norm(ngrads)
         if norm > self.W:

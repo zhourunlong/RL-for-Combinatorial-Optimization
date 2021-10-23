@@ -1,10 +1,12 @@
 import torch
 
 class CSPEnv():
-    def __init__(self, bs, type, device):
+    def __init__(self, bs, type, device, rwd_succ, rwd_fail):
         self.bs = bs
         self.type = type
         self.device = device
+        self.rwd_succ = rwd_succ
+        self.rwd_fail = rwd_fail
     
     def move_device(self, device):
         self.device = device
@@ -32,10 +34,11 @@ class CSPEnv():
         return torch.stack((torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.v[:, self.i].double()), dim=1)
     
     def get_reward(self, action):
-        raw_reward = 2 * (self.argmax == self.i).double() - 1
+        eq = (self.argmax == self.i).double()
+        raw_reward = eq * self.rwd_succ + (1 - eq) * self.rwd_fail
         self.i += 1
         if self.i == self.n:
-            return self.active * ((1 - action) * raw_reward - action), raw_reward, self.active
+            return self.active * ((1 - action) * raw_reward + action * self.rwd_fail), raw_reward, self.active
         ret = self.active * (1 - action) * raw_reward
         ract = self.active.clone()
         self.active *= action

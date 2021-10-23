@@ -16,10 +16,11 @@ def get_args():
     return parser.parse_args()
 
 def plot_prob_fig(agent, env, pic_dir, device):
-    states = torch.stack((torch.arange(1, agent.n + 1, dtype=torch.double, device=device) / agent.n, torch.ones((agent.n,), dtype=torch.double, device=device)), dim=1)
+    n = 1000
+    f = torch.arange(0, n + 1, dtype=torch.double, device=device) / n
+    states = torch.stack((f, torch.ones_like(f)), dim=1)
     max_acc = agent.get_accept_prob(states).cpu().numpy()
-
-    states = torch.stack((torch.arange(1, agent.n + 1, dtype=torch.double, device=device) / agent.n, torch.zeros((agent.n,), dtype=torch.double, device=device)), dim=1)
+    states = torch.stack((f, torch.zeros_like(f)), dim=1)
     non_max_acc = agent.get_accept_prob(states).cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(20, 20))
@@ -27,14 +28,17 @@ def plot_prob_fig(agent, env, pic_dir, device):
     plt.xticks(fontsize=30)
     plt.yticks(fontsize=30)
 
-    x = np.array([_ / agent.n for _ in range(agent.n + 1)])
-    ax.plot(x, np.concatenate((np.zeros(1,), np.array(max_acc))), label="P[Accept|SufMax]")
-    ax.plot(x, np.concatenate((np.zeros(1,), np.array(non_max_acc))), label="P[Accept|NotSufMax]")
+    x = np.arange(0, n + 1) / n
+    ax.plot(x, max_acc, label="P[Accept|SufMax]")
+    ax.plot(x, non_max_acc, label="P[Accept|NotSufMax]")
 
     idx = opt_tabular(env.probs.cpu().numpy())
     y = np.zeros_like(x)
-    for i in idx:
-        y[i] = 1
+    th = np.min(idx)
+    i1 = n * (th - 1) // env.n
+    i2 = (n * th + env.n - 1) // env.n
+    y[i1:i2] = np.arange(0, 1, 1 / (i2 - i1))
+    y[i2:] = 1
     ax.plot(x, y, label="Optimal")
 
     ax.set_title("Plot of acceptance probability", fontsize=40)
@@ -49,13 +53,18 @@ def plot_rl_fig(val1, label1, val2, label2, pic_dir, curve_buffer_size, len_avai
     fig, ax1 = plt.subplots(figsize=(40, 20))
 
     plt.xticks(fontsize=30)
-    plt.yticks(fontsize=30)
     
     ax2 = ax1.twinx()
 
     x = np.array([_ * curve_buffer_size for _ in range(len_avail)])
-    line1, = ax1.plot(x, val1[:len_avail], "g-", label=label1)
-    line2, = ax2.plot(x, val2[:len_avail], "b--", label=label2)
+    
+    line1, = ax1.plot(x, val1[:len_avail], "g-")
+    ax1.set_ylabel(label1, fontsize=40)
+    ax1.tick_params(axis='y', labelsize=30)
+
+    line2, = ax2.plot(x, val2[:len_avail], "b--")
+    ax2.set_ylabel(label2, fontsize=40)
+    ax2.tick_params(axis='y', labelsize=30)
 
     plt.title("Plot of training curve", fontsize=40)
     ax1.set_xlabel("Episode", fontsize=40)
