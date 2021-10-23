@@ -54,7 +54,7 @@ class CSPLogLinearAgent():
 
         action = probs.multinomial(1)
         prob = probs.gather(1, action).view(-1,)
-        #log_prob = log_probs.gather(1, action).view(-1,)
+        log_prob = log_probs.gather(1, action).view(-1,)
         entropy = -(probs * log_probs).sum(-1)
 
         action = action.double()
