@@ -17,6 +17,10 @@ class CSPLogLinearAgent():
 
         self.theta = torch.zeros((self.d, 1), dtype=torch.double, device=self.device)
     
+    def move_device(self, device):
+        self.device = device
+        self.theta.to(self.device)
+
     def update_n(self, n):
         self.n = n
 
@@ -51,45 +55,55 @@ class CSPLogLinearAgent():
 
         probs = F.softmax(params, dim=-1)
         log_probs = F.log_softmax(params, dim=-1)
+        entropy = -(probs * log_probs).sum(-1)
 
         action = probs.multinomial(1)
         prob = probs.gather(1, action).view(-1,)
         log_prob = log_probs.gather(1, action).view(-1,)
-        entropy = -(probs * log_probs).sum(-1)
 
         action = action.double()
 
         #grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action) * phi
 
-        return action.view(-1,), prob, entropy
+        return action.view(-1,), prob, log_prob, entropy
     
     def get_policy(self):
         phi = self.get_phi_all().view(2 * self.n, -1)
         return torch.sigmoid(phi @ self.theta).view(self.n, 2)
         
-    def update_param(self, states, actions, probs, entropies, rs0s, acts):
+    def update_param(self, states, actions, probs, log_probs, entropies, rewards, rs0s, acts):
         bs = states[0].shape[0]
         
         states = torch.cat(states)
 
-        phis = self.get_phi_batch(states).view(self.n, bs, -1)
-        pi = torch.sigmoid(phis @ self.theta).squeeze(-1)
-
-        V = torch.zeros((self.n + 1, bs), dtype=torch.double, device=self.device)
-        Q = torch.zeros((self.n, bs), dtype=torch.double, device=self.device)
-        V[-1] = -1
-        for i in range(self.n - 1, -1, -1):
-            V[i, :] = pi[i, :] * rs0s[i] + (1 - pi[i, :]) * V[i + 1, :] + self.L * entropies[i]
-            Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1]) - self.L * pi[i, :].log()
-
-        rs0s = torch.stack(rs0s)
-        acts = torch.stack(acts)
-        probs = torch.stack(probs)
         actions = torch.stack(actions)
+        probs = torch.stack(probs)
+        log_probs = torch.stack(log_probs)
+        entropies = torch.stack(entropies)
+        rewards = torch.stack(rewards)
+        #rs0s = torch.stack(rs0s)
+        acts = torch.stack(acts)
+
+        phis = self.get_phi_batch(states).view(self.n, bs, -1)
         
+        # calc V & Q
+        #pi = torch.sigmoid(phis @ self.theta).squeeze(-1)
+        #V = torch.zeros((self.n + 1, bs), dtype=torch.double, device=self.device)
+        #Q = torch.zeros((self.n, bs), dtype=torch.double, device=self.device)
+        #V[-1] = -1
+        #for i in range(self.n - 1, -1, -1):
+        #    V[i] = pi[i] * rs0s[i] + (1 - pi[i]) * V[i + 1]
+        #V[:-1, :] += self.L * entropies
+        #for i in range(self.n - 1, -1, -1):
+        #    Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1]) - self.L * pi[i].log()
+        
+        # WARNING! only correct for pi^t
+        rewards += self.L * acts * entropies
+        Q = rewards.flip(0).cumsum(0).flip(0) - self.L * acts * log_probs
+
         # NPG
         grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
-        grads = ((Q * acts).unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
+        grads = (Q.unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
         F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
 
         # NPG unif(A)
@@ -122,10 +136,6 @@ class CSPLogLinearAgent():
         #norm = torch.norm(self.theta)
         #if norm > self.W:
         #    self.theta *= self.W / norm
-        
-        #print(torch.cat((self.theta, grads), dim=1))
-        
-        #print("grad norm", grad_norm.item(), "norm", norm.item())
      
     def get_logits(self, states):
         phi = self.get_phi_batch(states)

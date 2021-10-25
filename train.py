@@ -27,7 +27,7 @@ def get_args():
     parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--d0", default=10, type=int)
-    parser.add_argument("--L", default=0.001, type=float)
+    parser.add_argument("--L", default=0.01, type=float)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
     parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
     parser.add_argument("--load-path", default=None, type=str)
@@ -51,30 +51,30 @@ def collect_data(agent, env, rewards_only=False):
     if rewards_only:
         for step in range(env.n):
             state = env.get_state()
-            action, _, _ = agent.get_action(state)
+            action, _, _, _ = agent.get_action(state)
             reward, _, _ = env.get_reward(action)
             
             rewards.append(reward)
 
         return rewards
     else:
-        states, actions, probs, entropies, rs0s, acts = [], [], [], [], [], []
+        states, actions, probs, log_probs, entropies, rs0s, acts = [], [], [], [], [], [], []
 
         for step in range(env.n):
             state = env.get_state()
-            action, prob, entropy = agent.get_action(state)
+            action, prob, log_prob, entropy = agent.get_action(state)
             reward, rs0, active = env.get_reward(action)
-            
             
             states.append(state)
             actions.append(action)
             probs.append(prob)
+            log_probs.append(log_prob)
             entropies.append(entropy)
             rewards.append(reward)
             rs0s.append(rs0)
             acts.append(active)
 
-        return states, actions, probs, entropies, rewards, rs0s, acts
+        return states, actions, probs, log_probs, entropies, rewards, rs0s, acts
 
 if __name__ == "__main__":
     args = get_args()
@@ -102,7 +102,11 @@ if __name__ == "__main__":
         package = torch.load(args.load_path, map_location=args.device)
         envs = package["envs"]
         agent = package["agent"]
+        for e in envs:
+            e.move_device(args.device)
+        agent.move_device(args.device)
         
+        env = envs[0]
         phi = agent.get_phi_all()
         idx = opt_tabular(env.probs.cpu().numpy())
         policy_star = torch.zeros((env.n, 2), dtype=torch.double, device=args.device)
@@ -114,14 +118,15 @@ if __name__ == "__main__":
 
         #print(agent.theta, torch.norm(agent.theta))
 
-        states_1 = [torch.arange(1, agent.n + 1, dtype=torch.double, device=args.device) / agent.n, torch.ones((agent.n,), dtype=torch.double, device=args.device)]
-        states_0 = [torch.arange(1, agent.n + 1, dtype=torch.double, device=args.device) / agent.n, torch.zeros((agent.n,), dtype=torch.double, device=args.device)]
+        f = torch.arange(1, agent.n + 1, dtype=torch.double, device=args.device) / agent.n
+        states_1 = torch.stack((f, torch.ones_like(f)), dim=1)
+        states_0 = torch.stack((f, torch.zeros_like(f)), dim=1)
         logits_1 = agent.get_logits(states_1).view(-1,).cpu()
         logits_0 = agent.get_logits(states_0).view(-1,).cpu()
 
         print(logits_1, logits_0)
 
-        plot_prob_fig(agent, env, "visualize.jpg")
+        plot_prob_fig(agent, env, "visualize.jpg", args.device)
 
         args.n = env.n
     else:
@@ -162,11 +167,10 @@ if __name__ == "__main__":
                 policy_star = torch.zeros((n, 2), dtype=torch.double, device=args.device)
                 for i in idx:
                     policy_star[i - 1, 1] = 1
-            else:
-                env.new_instance()
-
-            states, actions, probs, entropies, rewards, rs0s, acts = collect_data(agent0, env)
-            agent.update_param(states, actions, probs, entropies, rs0s, acts)
+            
+            env.new_instance()
+            states, actions, probs, log_probs, entropies, rewards, rs0s, acts = collect_data(agent0, env)
+            agent.update_param(states, actions, probs, log_probs, entropies, rewards, rs0s, acts)
 
             env.new_instance()
             rewards = collect_data(agent, env, True)
@@ -187,5 +191,8 @@ if __name__ == "__main__":
             if (episode + 1) % args.save_episode == 0:
                 package = {"agent":agent, "envs":envs}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
+
                 plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
-                plot_rl_fig(running_reward, "Reward", running_kappa, "Kappa", os.path.join(logdir, "result/curve.jpg"), args.curve_buffer_size, (episode + 1) // args.curve_buffer_size)
+                
+                len = (episode + 1) // args.curve_buffer_size
+                plot_rl_fig(running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve.jpg"), args.curve_buffer_size)
