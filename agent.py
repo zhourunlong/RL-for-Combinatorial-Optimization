@@ -58,34 +58,36 @@ class CSPLogLinearAgent():
         entropy = -(probs * log_probs).sum(-1)
 
         action = probs.multinomial(1)
+
+        return action.double().view(-1,), entropy
+    
+    def query_sa(self, state, action):
+        phi = self.get_phi_batch(state)
+
+        params = phi @ self.theta
+        params = torch.cat([params, torch.zeros_like(params)], dim=-1)
+
+        probs = F.softmax(params, dim=-1)
+        log_probs = F.log_softmax(params, dim=-1)
+
+        action = action.long().view(state.shape[0], 1)
+
         prob = probs.gather(1, action).view(-1,)
         log_prob = log_probs.gather(1, action).view(-1,)
+        grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action) * phi
 
-        action = action.double()
-
-        #grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * action) * phi
-
-        return action.view(-1,), prob, log_prob, entropy
+        return log_prob, grad_logp
     
     def get_policy(self):
         phi = self.get_phi_all().view(2 * self.n, -1)
         return torch.sigmoid(phi @ self.theta).view(self.n, 2)
-        
-    def update_param(self, states, actions, probs, log_probs, entropies, rewards, rs0s, acts):
-        bs = states[0].shape[0]
-        
-        states = torch.cat(states)
 
-        actions = torch.stack(actions)
-        probs = torch.stack(probs)
-        log_probs = torch.stack(log_probs)
-        entropies = torch.stack(entropies)
-        rewards = torch.stack(rewards)
-        #rs0s = torch.stack(rs0s)
-        acts = torch.stack(acts)
-
-        phis = self.get_phi_batch(states).view(self.n, bs, -1)
-        
+    def zero_grad(self):
+        self.grads = torch.zeros_like(self.theta)
+        self.F = torch.zeros((self.d, self.d), dtype=torch.double, device=self.device)
+        self.cnt = 0
+    
+    def store_grad(self, Qs, grads_logp):
         # calc V & Q
         #pi = torch.sigmoid(phis @ self.theta).squeeze(-1)
         #V = torch.zeros((self.n + 1, bs), dtype=torch.double, device=self.device)
@@ -97,33 +99,23 @@ class CSPLogLinearAgent():
         #for i in range(self.n - 1, -1, -1):
         #    Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1]) - self.L * pi[i].log()
         
-        # WARNING! only correct for pi^t
-        rewards += self.L * acts * entropies
-        Q = rewards.flip(0).cumsum(0).flip(0) - self.L * acts * log_probs
-
         # NPG
-        grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
-        grads = (Q.unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
-        F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
+        self.grads += (Qs.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
+        self.F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
+        self.cnt += 1
 
         # NPG unif(A)
         #phis *= acts.unsqueeze(-1)
         #grads = (0.5 * (((1 - pi) * rs0s - pi * V[1:,:] + (2 * pi - 1) * V[:-1,:]) * acts).unsqueeze(-1) * phis).mean((0, 1)).unsqueeze(-1)
         #F = ((0.5 * ((1 - pi) ** 2 + pi ** 2).unsqueeze(-1) * phis).view(-1, self.d, 1) @ phis.view(-1, 1, self.d)).mean(0)
         
-        # NPG unif(A) importance sampling (NOT DONE!)
-        #grads_logp = (acts * (1 - probs) * (1 - 2 * actions)).unsqueeze(-1) * phis
-        #phis *= acts.unsqueeze(-1)
-        #grads = ((acts / (2 * probs)).unsqueeze(-1) * grads_logp * Q).mean((0, 1)).unsqueeze(-1)
-        #F = ((0.5 * ((1 - pi) ** 2 + pi ** 2).unsqueeze(-1) * phis).view(-1, self.d, 1) @ phis.view(-1, 1, self.d)).mean(0)
-
         # Q-NPG unif(A)
         #grads_logp = acts.unsqueeze(-1) * phis
         #grads = ((rs0s * acts).unsqueeze(-1) * grads_logp).mean((0, 1)).unsqueeze(-1)
         #F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
-
-        C = 1e-6
-        ngrads = torch.lstsq(grads, F + C * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
+        
+    def update_param(self):
+        ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
         #ngrads = F.pinverse() @ grads
 
         norm = torch.norm(ngrads)

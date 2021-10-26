@@ -38,9 +38,9 @@ class CSPEnv():
         raw_reward = eq * self.rwd_succ + (1 - eq) * self.rwd_fail
         self.i += 1
         if self.i == self.n:
-            return self.active * ((1 - action) * raw_reward + action * self.rwd_fail), raw_reward, self.active
+            return self.active * ((1 - action) * raw_reward + action * self.rwd_fail), self.active
         ret = self.active * (1 - action) * raw_reward
         ract = self.active.clone()
         self.active *= action
-        return ret, raw_reward, ract
+        return ret, ract
         

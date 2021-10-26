@@ -17,18 +17,18 @@ from calculate_kappa import *
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", type=str)
-    parser.add_argument("--batch-size", default=4500, type=int)
+    parser.add_argument("--batch-size", default=20000, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--N", default=100, type=int)
     parser.add_argument("--d", default=10, type=int)
     parser.add_argument("--W", default=10, type=float)
-    parser.add_argument("--save-episode", default=1000, type=int)
-    parser.add_argument("--phase-episode", default=10000, type=int)
+    parser.add_argument("--save-episode", default=100, type=int)
+    parser.add_argument("--phase-episode", default=1000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--d0", default=10, type=int)
     parser.add_argument("--L", default=0.01, type=float)
-    parser.add_argument("--curve-buffer-size", default=100, type=int)
+    parser.add_argument("--curve-buffer-size", default=10, type=int)
     parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
     parser.add_argument("--load-path", default=None, type=str)
     parser.add_argument("--rwd-succ", default=1, type=float)
@@ -45,36 +45,42 @@ def set_seed(seed):
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
 
-def collect_data(agent, env, rewards_only=False):
-    rewards = []
+def collect_data(env, sampler, agent):
+    agent.zero_grad()
 
-    if rewards_only:
-        for step in range(env.n):
+    for m in range(1, env.n + 1):
+        env.new_instance()
+
+        for i in range(m):
             state = env.get_state()
-            action, _, _, _ = agent.get_action(state)
-            reward, _, _ = env.get_reward(action)
-            
-            rewards.append(reward)
+            action, _ = sampler.get_action(state)
+            reward, active = env.get_reward(action)
+        
+        log_prob, grads_logp = agent.query_sa(state, action)
+        grads_logp *= active.unsqueeze(-1)
+        rewards = active * (reward - agent.L * log_prob)
 
-        return rewards
-    else:
-        states, actions, probs, log_probs, entropies, rs0s, acts = [], [], [], [], [], [], []
-
-        for step in range(env.n):
+        for i in range(m, env.n):
             state = env.get_state()
-            action, prob, log_prob, entropy = agent.get_action(state)
-            reward, rs0, active = env.get_reward(action)
-            
-            states.append(state)
-            actions.append(action)
-            probs.append(prob)
-            log_probs.append(log_prob)
-            entropies.append(entropy)
-            rewards.append(reward)
-            rs0s.append(rs0)
-            acts.append(active)
+            action, entropy = agent.get_action(state)
+            reward, active = env.get_reward(action)
 
-        return states, actions, probs, log_probs, entropies, rewards, rs0s, acts
+            rewards += reward + agent.L * active * entropy
+        
+        agent.store_grad(rewards, grads_logp)
+
+def evaluate(env, agent):
+    env.new_instance()
+    rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
+
+    for i in range(env.n):
+        state = env.get_state()
+        action, _ = agent.get_action(state)
+        reward, _ = env.get_reward(action)
+        
+        rewards += reward
+    
+    return rewards.mean().cpu().numpy()
 
 if __name__ == "__main__":
     args = get_args()
@@ -114,7 +120,7 @@ if __name__ == "__main__":
             policy_star[i - 1, 1] = 1
         kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
 
-        print(kappa)
+        #print(kappa)
 
         #print(agent.theta, torch.norm(agent.theta))
 
@@ -124,7 +130,7 @@ if __name__ == "__main__":
         logits_1 = agent.get_logits(states_1).view(-1,).cpu()
         logits_0 = agent.get_logits(states_0).view(-1,).cpu()
 
-        print(logits_1, logits_0)
+        #print(logits_1, logits_0)
 
         plot_prob_fig(agent, env, "visualize.jpg", args.device)
 
@@ -157,10 +163,10 @@ if __name__ == "__main__":
                 env = envs[0]
 
                 #if episode > 0:
-                #    agent0 = copy.deepcopy(agent)
+                #    sampler = copy.deepcopy(agent)
                 #else:
-                #    agent0 = agent
-                agent0 = agent
+                #    sampler = agent
+                sampler = agent
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())
@@ -168,13 +174,10 @@ if __name__ == "__main__":
                 for i in idx:
                     policy_star[i - 1, 1] = 1
             
-            env.new_instance()
-            states, actions, probs, log_probs, entropies, rewards, rs0s, acts = collect_data(agent0, env)
-            agent.update_param(states, actions, probs, log_probs, entropies, rewards, rs0s, acts)
+            collect_data(env, sampler, agent)
+            agent.update_param()
 
-            env.new_instance()
-            rewards = collect_data(agent, env, True)
-            reward = (torch.stack(rewards).sum() / args.batch_size).cpu().numpy()
+            reward = evaluate(env, agent)
             reward_buf += reward
 
             kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi).cpu().numpy()
