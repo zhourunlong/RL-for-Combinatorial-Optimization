@@ -17,14 +17,14 @@ from calculate_kappa import *
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", type=str)
-    parser.add_argument("--batch-size", default=20000, type=int)
+    parser.add_argument("--batch-size", default=5000, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--N", default=100, type=int)
     parser.add_argument("--d", default=10, type=int)
     parser.add_argument("--W", default=10, type=float)
     parser.add_argument("--save-episode", default=100, type=int)
-    parser.add_argument("--phase-episode", default=1000, type=int)
+    parser.add_argument("--phase-episode", default=2000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--d0", default=10, type=int)
     parser.add_argument("--L", default=0.01, type=float)
@@ -47,27 +47,40 @@ def set_seed(seed):
 
 def collect_data(env, sampler, agent):
     agent.zero_grad()
+    env.new_instance()
 
-    for m in range(1, env.n + 1):
-        env.new_instance()
+    csiz = env.bs // env.n
+    rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
+    grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
 
-        for i in range(m):
-            state = env.get_state()
-            action, _ = sampler.get_action(state)
-            reward, active = env.get_reward(action)
-        
-        log_prob, grads_logp = agent.query_sa(state, action)
-        grads_logp *= active.unsqueeze(-1)
-        rewards = active * (reward - agent.L * log_prob)
+    # Treat first step specially to avoid s_agent == None
+    s_sampler = env.get_state()
+    a_sampler, _ = sampler.get_action(s_sampler)
+    reward, active = env.get_reward(a_sampler)
+    log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
+    rewards[-csiz:] = active[-csiz:] * (reward[-csiz:] - agent.L * log_prob)
+    grads_logp[-csiz:] = grad_logp * active[-csiz:].unsqueeze(-1)
 
-        for i in range(m, env.n):
-            state = env.get_state()
-            action, entropy = agent.get_action(state)
-            reward, active = env.get_reward(action)
+    for i in range(1, env.n):
+        state = env.get_state()
+        s_sampler, s_agent = torch.split(state, [(env.n - i) * csiz, i * csiz])
 
-            rewards += reward + agent.L * active * entropy
-        
-        agent.store_grad(rewards, grads_logp)
+        a_sampler, _ = sampler.get_action(s_sampler)
+        a_agent, entropy = agent.get_action(s_agent)
+        action = torch.cat((a_sampler, a_agent))
+
+        reward, active = env.get_reward(action)
+
+        il, ir = -(i + 1) * csiz, -i * csiz
+        log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
+        rewards[il:ir] = active[il:ir] * (reward[il:ir] - agent.L * log_prob)
+        grads_logp[il:ir] = grad_logp * active[il:ir].unsqueeze(-1)
+        rewards[ir:] += reward[ir:] + agent.L * active[ir:] * entropy
+    
+    #for i in range(env.n - 1, -1, -1):
+    #    il, ir = i * csiz, (i + 1) * csiz
+    #    agent.store_grad(rewards[il:ir], grads_logp[il:ir])
+    agent.store_grad(rewards, grads_logp)
 
 def evaluate(env, agent):
     env.new_instance()
@@ -136,12 +149,12 @@ if __name__ == "__main__":
 
         args.n = env.n
     else:
-        env = CSPEnv(args.batch_size, args.type, args.device, args.rwd_succ, args.rwd_fail)
+        env = CSPEnv(args.type, args.device, args.rwd_succ, args.rwd_fail)
         agent = CSPLogLinearAgent(args.lr, args.d0, args.L, args.W, args.device)
         
         envs = []
         for n in range(args.N, args.n - args.d, -args.d):
-            env.reset_n(n)
+            env.set_n(n)
             envs.append(copy.deepcopy(env))
         envs.reverse()
 
@@ -161,12 +174,13 @@ if __name__ == "__main__":
                 agent.update_n(n)
                 envs.pop(0)
                 env = envs[0]
+                env.set_bs(n * args.batch_size)
 
-                #if episode > 0:
-                #    sampler = copy.deepcopy(agent)
-                #else:
-                #    sampler = agent
-                sampler = agent
+                if episode > 0:
+                    sampler = copy.deepcopy(agent)
+                else:
+                    sampler = agent
+                #sampler = agent
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())

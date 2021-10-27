@@ -1,8 +1,7 @@
 import torch
 
 class CSPEnv():
-    def __init__(self, bs, type, device, rwd_succ, rwd_fail):
-        self.bs = bs
+    def __init__(self, type, device, rwd_succ, rwd_fail):
         self.type = type
         self.device = device
         self.rwd_succ = rwd_succ
@@ -15,14 +14,16 @@ class CSPEnv():
         self.argmax.to(self.device)
         self.active.to(self.device)
     
-    def reset_n(self, n):
+    def set_n(self, n):
         self.n = n
         if self.type == "uniform":
             self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device=self.device)
         else:
             tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device=self.device)
             self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device=self.device), tmp.pow(0.25 + 2 * torch.rand(self.n - 1, dtype=torch.double, device=self.device))))
-        self.new_instance()
+
+    def set_bs(self, bs):
+        self.bs = bs
 
     def new_instance(self):
         self.i = 0

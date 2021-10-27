@@ -101,7 +101,7 @@ class CSPLogLinearAgent():
         
         # NPG
         self.grads += (Qs.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
-        self.F = (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
+        self.F += (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
         self.cnt += 1
 
         # NPG unif(A)
