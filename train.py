@@ -16,8 +16,8 @@ from calculate_kappa import *
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cuda", type=str)
-    parser.add_argument("--batch-size", default=5000, type=int)
+    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
+    parser.add_argument("--batch-size", default=1000, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--N", default=100, type=int)
@@ -27,7 +27,7 @@ def get_args():
     parser.add_argument("--phase-episode", default=2000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--d0", default=10, type=int)
-    parser.add_argument("--L", default=0.01, type=float)
+    parser.add_argument("--L", default=0, type=float)
     parser.add_argument("--curve-buffer-size", default=10, type=int)
     parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
     parser.add_argument("--load-path", default=None, type=str)
@@ -52,30 +52,30 @@ def collect_data(env, sampler, agent):
     csiz = env.bs // env.n
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
     grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
-
-    # Treat first step specially to avoid s_agent == None
-    s_sampler = env.get_state()
-    a_sampler, _ = sampler.get_action(s_sampler)
-    reward, active = env.get_reward(a_sampler)
-    log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
-    rewards[-csiz:] = active[-csiz:] * (reward[-csiz:] - agent.L * log_prob)
-    grads_logp[-csiz:] = grad_logp * active[-csiz:].unsqueeze(-1)
+    idx = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
 
     for i in range(1, env.n):
+        il, ir = -(i + 1) * csiz, -i * csiz
+
         state = env.get_state()
-        s_sampler, s_agent = torch.split(state, [(env.n - i) * csiz, i * csiz])
+        s_sampler, s_agent = state[:ir], state[il:]
 
         a_sampler, _ = sampler.get_action(s_sampler)
         a_agent, entropy = agent.get_action(s_agent)
-        action = torch.cat((a_sampler, a_agent))
 
+        id = torch.randint(2, (csiz,), dtype=torch.bool, device=env.device)
+        idx[il:ir] = id
+        ax = torch.where(id, a_sampler[-csiz:], a_agent[:csiz])
+        
+        action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
 
-        il, ir = -(i + 1) * csiz, -i * csiz
         log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
-        rewards[il:ir] = active[il:ir] * (reward[il:ir] - agent.L * log_prob)
+        rewards[il:ir] = active[il:ir] * torch.where(id, reward[il:ir] - agent.L * log_prob, reward[il:ir] + agent.L * entropy[:csiz])
         grads_logp[il:ir] = grad_logp * active[il:ir].unsqueeze(-1)
-        rewards[ir:] += reward[ir:] + agent.L * active[ir:] * entropy
+        rewards[ir:] += reward[ir:] + agent.L * active[ir:] * entropy[csiz:]
+    
+    rewards *= 4 * idx - 2
     
     #for i in range(env.n - 1, -1, -1):
     #    il, ir = i * csiz, (i + 1) * csiz
