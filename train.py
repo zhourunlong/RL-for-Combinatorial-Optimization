@@ -17,18 +17,18 @@ from calculate_kappa import *
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
-    parser.add_argument("--batch-size", default=1000, type=int)
+    parser.add_argument("--batch-size", default=10000, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--n", default=10, type=int)
     parser.add_argument("--N", default=100, type=int)
-    parser.add_argument("--d", default=10, type=int)
+    parser.add_argument("--d", default=90, type=int)
     parser.add_argument("--W", default=10, type=float)
     parser.add_argument("--save-episode", default=100, type=int)
-    parser.add_argument("--phase-episode", default=2000, type=int)
+    parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--d0", default=10, type=int)
     parser.add_argument("--L", default=0, type=float)
-    parser.add_argument("--curve-buffer-size", default=10, type=int)
+    parser.add_argument("--curve-buffer-size", default=100, type=int)
     parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
     parser.add_argument("--load-path", default=None, type=str)
     parser.add_argument("--rwd-succ", default=1, type=float)
@@ -49,13 +49,13 @@ def collect_data(env, sampler, agent):
     agent.zero_grad()
     env.new_instance()
 
-    csiz = env.bs // env.n
+    csiz = env.bs // (env.n + 1)
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
+    log_probs, idx, actives = torch.zeros_like(rewards), torch.zeros_like(rewards), torch.zeros_like(rewards)
     grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
-    idx = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
 
-    for i in range(1, env.n):
-        il, ir = -(i + 1) * csiz, -i * csiz
+    for i in range(env.n):
+        il, ir = -(i + 2) * csiz, -(i + 1) * csiz
 
         state = env.get_state()
         s_sampler, s_agent = state[:ir], state[il:]
@@ -63,37 +63,26 @@ def collect_data(env, sampler, agent):
         a_sampler, _ = sampler.get_action(s_sampler)
         a_agent, entropy = agent.get_action(s_agent)
 
-        id = torch.randint(2, (csiz,), dtype=torch.bool, device=env.device)
+        id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
         idx[il:ir] = id
-        ax = torch.where(id, a_sampler[-csiz:], a_agent[:csiz])
+        ax = id * a_sampler[-csiz:] + (1 - id) * a_agent[:csiz]
         
         action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
 
-        log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
-        rewards[il:ir] = active[il:ir] * torch.where(id, reward[il:ir] - agent.L * log_prob, reward[il:ir] + agent.L * entropy[:csiz])
+        actives[il:ir] = active[il:ir]
+        log_probs[il:ir], grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
         grads_logp[il:ir] = grad_logp * active[il:ir].unsqueeze(-1)
-        rewards[ir:] += reward[ir:] + agent.L * active[ir:] * entropy[csiz:]
-    
-    rewards *= 4 * idx - 2
-    
-    #for i in range(env.n - 1, -1, -1):
-    #    il, ir = i * csiz, (i + 1) * csiz
-    #    agent.store_grad(rewards[il:ir], grads_logp[il:ir])
-    agent.store_grad(rewards, grads_logp)
-
-def evaluate(env, agent):
-    env.new_instance()
-    rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
-
-    for i in range(env.n):
-        state = env.get_state()
-        action, _ = agent.get_action(state)
-        reward, _ = env.get_reward(action)
         
-        rewards += reward
+        rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (1 - id) * entropy[:csiz])
+        rewards[ir:-csiz] += reward[ir:-csiz] + agent.L * active[ir:-csiz] * entropy[csiz:-csiz]
+        rewards[-csiz:] += reward[-csiz:]
     
-    return rewards.mean().cpu().numpy()
+    idx[-csiz:] = 0.75
+    rewards = rewards * (4 * idx - 2) - agent.L * actives * log_probs
+    agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
+
+    return rewards[-csiz:].mean().detach().cpu()
 
 if __name__ == "__main__":
     args = get_args()
@@ -174,13 +163,12 @@ if __name__ == "__main__":
                 agent.update_n(n)
                 envs.pop(0)
                 env = envs[0]
-                env.set_bs(n * args.batch_size)
+                env.set_bs((n + 1) * args.batch_size) # one more batch for evaluation
 
                 if episode > 0:
                     sampler = copy.deepcopy(agent)
                 else:
                     sampler = agent
-                #sampler = agent
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())
@@ -188,10 +176,8 @@ if __name__ == "__main__":
                 for i in idx:
                     policy_star[i - 1, 1] = 1
             
-            collect_data(env, sampler, agent)
+            reward = collect_data(env, sampler, agent)
             agent.update_param()
-
-            reward = evaluate(env, agent)
             reward_buf += reward
 
             kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi).cpu().numpy()

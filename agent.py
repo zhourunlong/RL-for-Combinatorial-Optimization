@@ -87,7 +87,7 @@ class CSPLogLinearAgent():
         self.F = torch.zeros((self.d, self.d), dtype=torch.double, device=self.device)
         self.cnt = 0
     
-    def store_grad(self, Qs, grads_logp):
+    def store_grad(self, As, grads_logp):
         # calc V & Q
         #pi = torch.sigmoid(phis @ self.theta).squeeze(-1)
         #V = torch.zeros((self.n + 1, bs), dtype=torch.double, device=self.device)
@@ -100,7 +100,7 @@ class CSPLogLinearAgent():
         #    Q[i] = torch.where(actions[i] == 0.0, rs0s[i], V[i + 1]) - self.L * pi[i].log()
         
         # NPG
-        self.grads += (Qs.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
+        self.grads += (As.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
         self.F += (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
         self.cnt += 1
 
