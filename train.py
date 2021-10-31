@@ -23,7 +23,7 @@ def get_args():
     parser.add_argument("--N", default=100, type=int)
     parser.add_argument("--d", default=90, type=int)
     parser.add_argument("--W", default=10, type=float)
-    parser.add_argument("--save-episode", default=100, type=int)
+    parser.add_argument("--save-episode", default=1000, type=int)
     parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--d0", default=10, type=int)
@@ -165,10 +165,12 @@ if __name__ == "__main__":
                 env = envs[0]
                 env.set_bs((n + 1) * args.batch_size) # one more batch for evaluation
 
-                if episode > 0:
-                    sampler = copy.deepcopy(agent)
-                else:
-                    sampler = agent
+                #if episode > 0:
+                #    sampler = copy.deepcopy(agent)
+                #else:
+                #    sampler = agent
+                #sampler = copy.deepcopy(agent)
+                sampler = agent
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())
@@ -192,6 +194,7 @@ if __name__ == "__main__":
             pbar.set_description("Epi: %d, N: %d, R: %2.4f, K: %3.3f" % (episode, n, reward, kappa))
 
             if (episode + 1) % args.save_episode == 0:
+                del env.v
                 package = {"agent":agent, "envs":envs}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
 
