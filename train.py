@@ -13,27 +13,19 @@ import copy
 from math import sqrt
 from calculate_opt_policy import *
 from calculate_kappa import *
+import configparser
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
-    parser.add_argument("--batch-size", default=10000, type=int)
-    parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--n", default=10, type=int)
-    parser.add_argument("--N", default=100, type=int)
-    parser.add_argument("--d", default=90, type=int)
-    parser.add_argument("--W", default=10, type=float)
+    parser.add_argument("--config", default="config.ini", type=str)
+    parser.add_argument("--problem", choices=["CSP", "OLKnapsack"], required=True)
     parser.add_argument("--save-episode", default=1000, type=int)
     parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
-    parser.add_argument("--d0", default=10, type=int)
-    parser.add_argument("--L", default=0, type=float)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
-    parser.add_argument("--distr-type", default="uniform", choices=["uniform", "random"])
     parser.add_argument("--sample-type", default="pi^t", choices=["pi^0", "pi^t", "curriculum"])
     parser.add_argument("--load-path", default=None, type=str)
-    parser.add_argument("--rwd-succ", default=1, type=float)
-    parser.add_argument("--rwd-fail", default=0, type=float)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -46,7 +38,10 @@ def set_seed(seed):
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
 
-def unpack(agent, envs, best, agent_best, sampler):
+def unpack_config(batch_size, n_start, n_end, step, **kwargs):
+    return int(batch_size), int(n_start), int(n_end), int(step)
+
+def unpack_checkpoint(agent, envs, best, agent_best, sampler, **kwargs):
     return agent, envs, best, agent_best, sampler
 
 def collect_data(env, sampler, agent):
@@ -91,14 +86,19 @@ def collect_data(env, sampler, agent):
 if __name__ == "__main__":
     args = get_args()
 
-    #args.lr = 2 / sqrt(2 * args.d0 * args.phase_episode)
-
-    assert (args.N - args.n) % args.d == 0
     assert args.save_episode % args.curve_buffer_size == 0
+
+    parser = configparser.RawConfigParser()
+    parser.optionxform = lambda option: option
+    parser.read(args.config, encoding='utf-8')
+    config = dict(parser.items(args.problem))
+    batch_size, n_start, n_end, step = unpack_config(**config)
 
     set_seed(args.seed)
 
-    logdir = "Experiment-{}".format(time.strftime("%Y%m%d-%H%M%S"))
+    assert (n_end - n_start) % step == 0
+
+    logdir = "Exp-{}-{}".format(time.strftime("%Y%m%d-%H%M%S"), args.problem)
     os.makedirs(logdir, exist_ok=True)
     os.makedirs(os.path.join(logdir, "checkpoint"), exist_ok=True)
     os.makedirs(os.path.join(logdir, "code"), exist_ok=True)
@@ -109,10 +109,11 @@ if __name__ == "__main__":
     for fn in dirs:
         if os.path.splitext(fn)[-1] == ".py":
             shutil.copy(fn, os.path.join(logdir, "code"))
+    shutil.copy(args.config, os.path.join(logdir, "config.ini"))
 
     if args.load_path is not None:
         package = torch.load(args.load_path, map_location=args.device)
-        agent, envs, best, agent_best, sampler = unpack(**package)
+        agent, envs, best, agent_best, sampler = unpack_checkpoint(**package)
 
         for it in envs + [agent, agent_best, sampler]:
             it.move_device(args.device)
@@ -123,37 +124,42 @@ if __name__ == "__main__":
         policy_star = torch.zeros((env.n, 2), dtype=torch.double, device=args.device)
         for i in idx:
             policy_star[i - 1, 1] = 1
-        kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
+
+        #kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
 
         #print(kappa)
 
         #print(agent.theta, torch.norm(agent.theta))
 
-        f = torch.arange(1, agent.n + 1, dtype=torch.double, device=args.device) / agent.n
-        states_1 = torch.stack((f, torch.ones_like(f)), dim=1)
-        states_0 = torch.stack((f, torch.zeros_like(f)), dim=1)
-        logits_1 = agent.get_logits(states_1).view(-1,).cpu()
-        logits_0 = agent.get_logits(states_0).view(-1,).cpu()
+        #f = torch.arange(1, agent.n + 1, dtype=torch.double, device=args.device) / agent.n
+        #states_1 = torch.stack((f, torch.ones_like(f)), dim=1)
+        #states_0 = torch.stack((f, torch.zeros_like(f)), dim=1)
+        #logits_1 = agent.get_logits(states_1).view(-1,).cpu()
+        #logits_0 = agent.get_logits(states_0).view(-1,).cpu()
 
         #print(logits_1, logits_0)
 
-        plot_prob_fig(agent, env, "visualize.jpg", args.device)
+        #plot_prob_fig(agent, env, "visualize.jpg", args.device)
 
-        args.n = env.n
+        n_start = env.n
     else:
-        env = CSPEnv(args.distr_type, args.device, args.rwd_succ, args.rwd_fail)
-        agent = CSPLogLinearAgent(args.lr, args.d0, args.L, args.W, args.device)
+        if args.problem == "CSP":
+            env = CSPEnv(args.device, **config)
+            agent = CSPAgent(args.device, **config)
+        elif args.problem == "OLKnapsack":
+            env = OLKnapsackEnv(args.device, **config)
+            agent = OLKnapsackAgent(args.device, **config)
         
         envs = []
-        for n in range(args.N, args.n - args.d, -args.d):
+        for n in range(n_end, n_start - step, -step):
             env.set_n(n)
             envs.append(copy.deepcopy(env))
         envs.reverse()
 
     envs.insert(0, None)
 
-    n = args.n - args.d
-    num_episode = ((args.N - args.n) // args.d + 1) * args.phase_episode
+    n = n_start - step
+    num_episode = ((n_end - n_start) // step + 1) * args.phase_episode
 
     running_reward = [0 for _ in range(num_episode // args.curve_buffer_size)]
     running_kappa = [0 for _ in range(num_episode // args.curve_buffer_size)]
@@ -162,11 +168,11 @@ if __name__ == "__main__":
     with tqdm(range(num_episode), desc="Training") as pbar:
         for episode in pbar:
             if episode % args.phase_episode == 0:
-                n += args.d
+                n += step
                 agent.update_n(n)
                 envs.pop(0)
                 env = envs[0]
-                env.set_bs((n + 1) * args.batch_size) # one more batch for evaluation
+                env.set_bs((n + 1) * batch_size) # one more batch for evaluation
 
                 if args.load_path is None:
                     best = -1e9
