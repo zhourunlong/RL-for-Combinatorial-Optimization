@@ -29,10 +29,11 @@ def get_args():
     parser.add_argument("--d0", default=10, type=int)
     parser.add_argument("--L", default=0, type=float)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
-    parser.add_argument("--type", default="uniform", choices=["uniform", "random"])
+    parser.add_argument("--distr-type", default="uniform", choices=["uniform", "random"])
+    parser.add_argument("--sample-type", default="pi^t", choices=["pi^0", "pi^t", "curriculum"])
     parser.add_argument("--load-path", default=None, type=str)
     parser.add_argument("--rwd-succ", default=1, type=float)
-    parser.add_argument("--rwd-fail", default=-1, type=float)
+    parser.add_argument("--rwd-fail", default=0, type=float)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -44,6 +45,9 @@ def set_seed(seed):
 	torch.cuda.manual_seed_all(seed)
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
+
+def unpack(agent, envs, best, agent_best, sampler):
+    return agent, envs, best, agent_best, sampler
 
 def collect_data(env, sampler, agent):
     agent.zero_grad()
@@ -108,11 +112,10 @@ if __name__ == "__main__":
 
     if args.load_path is not None:
         package = torch.load(args.load_path, map_location=args.device)
-        envs = package["envs"]
-        agent = package["agent"]
-        for e in envs:
-            e.move_device(args.device)
-        agent.move_device(args.device)
+        agent, envs, best, agent_best, sampler = unpack(**package)
+
+        for it in envs + [agent, agent_best, sampler]:
+            it.move_device(args.device)
         
         env = envs[0]
         phi = agent.get_phi_all()
@@ -138,7 +141,7 @@ if __name__ == "__main__":
 
         args.n = env.n
     else:
-        env = CSPEnv(args.type, args.device, args.rwd_succ, args.rwd_fail)
+        env = CSPEnv(args.distr_type, args.device, args.rwd_succ, args.rwd_fail)
         agent = CSPLogLinearAgent(args.lr, args.d0, args.L, args.W, args.device)
         
         envs = []
@@ -165,12 +168,23 @@ if __name__ == "__main__":
                 env = envs[0]
                 env.set_bs((n + 1) * args.batch_size) # one more batch for evaluation
 
-                #if episode > 0:
-                #    sampler = copy.deepcopy(agent)
-                #else:
-                #    sampler = agent
-                #sampler = copy.deepcopy(agent)
-                sampler = agent
+                if args.load_path is None:
+                    best = -1e9
+                    if args.sample_type == "pi^0":
+                        sampler = copy.deepcopy(agent)
+                    elif args.sample_type == "pi^t":
+                        sampler = agent
+                    else:
+                        if episode > 0:
+                            sampler = copy.deepcopy(agent)
+                        else:
+                            sampler = agent
+                elif episode > 0:
+                    best = -1e9
+                    if args.sample_type == "pi^t":
+                        sampler = agent
+                    else:
+                        sampler = copy.deepcopy(agent)
 
                 phi = agent.get_phi_all()
                 idx = opt_tabular(env.probs.cpu().numpy())
@@ -181,6 +195,10 @@ if __name__ == "__main__":
             reward = collect_data(env, sampler, agent)
             agent.update_param()
             reward_buf += reward
+            if reward > best:
+                best = reward
+                agent_best = copy.deepcopy(agent)
+                best_changed = True
 
             kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi).cpu().numpy()
             kappa_buf += kappa
@@ -195,10 +213,13 @@ if __name__ == "__main__":
 
             if (episode + 1) % args.save_episode == 0:
                 del env.v
-                package = {"agent":agent, "envs":envs}
+                package = {"agent":agent, "envs":envs, "best": best, "agent_best":agent_best, "sampler":sampler}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
 
                 plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
+                if best_changed:
+                    plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
+                    best_changed = False
                 
                 len = (episode + 1) // args.curve_buffer_size
                 plot_rl_fig(running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve.jpg"), args.curve_buffer_size)
