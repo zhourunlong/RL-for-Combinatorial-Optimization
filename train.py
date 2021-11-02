@@ -42,7 +42,7 @@ def unpack_config(batch_size, n_start, n_end, step, **kwargs):
     return int(batch_size), int(n_start), int(n_end), int(step)
 
 def unpack_checkpoint(agent, envs, best, agent_best, sampler, **kwargs):
-    return agent, envs, best, agent_best, sampler
+    return agent, envs, best.cpu(), agent_best, sampler
 
 def collect_data(env, sampler, agent):
     agent.zero_grad()
@@ -88,6 +88,9 @@ if __name__ == "__main__":
 
     assert args.save_episode % args.curve_buffer_size == 0
 
+    if args.load_path is not None:
+        args.config = os.path.join(os.path.dirname(args.load_path), "../config.ini")
+
     parser = configparser.RawConfigParser()
     parser.optionxform = lambda option: option
     parser.read(args.config, encoding='utf-8')
@@ -118,12 +121,12 @@ if __name__ == "__main__":
         for it in envs + [agent, agent_best, sampler]:
             it.move_device(args.device)
         
-        env = envs[0]
-        phi = agent.get_phi_all()
-        idx = opt_tabular(env.probs.cpu().numpy())
-        policy_star = torch.zeros((env.n, 2), dtype=torch.double, device=args.device)
-        for i in idx:
-            policy_star[i - 1, 1] = 1
+        #env = envs[0]
+        #phi = agent.get_phi_all()
+        #idx = opt_tabular(env.probs.cpu().numpy())
+        #policy_star = torch.zeros((env.n, 2), dtype=torch.double, device=args.device)
+        #for i in idx:
+        #    policy_star[i - 1, 1] = 1
 
         #kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
 
@@ -141,7 +144,7 @@ if __name__ == "__main__":
 
         #plot_prob_fig(agent, env, "visualize.jpg", args.device)
 
-        n_start = env.n
+        n_start = envs[0].n
     else:
         if args.problem == "CSP":
             env = CSPEnv(args.device, **config)
@@ -218,7 +221,7 @@ if __name__ == "__main__":
             pbar.set_description("Epi: %d, N: %d, R: %2.4f, K: %3.3f" % (episode, n, reward, kappa))
 
             if (episode + 1) % args.save_episode == 0:
-                del env.v
+                del env.v, env.argmax, env.active
                 package = {"agent":agent, "envs":envs, "best": best, "agent_best":agent_best, "sampler":sampler}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
 
