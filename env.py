@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
 import torch
+import numpy as np
+from fractions import Fraction
+from decimal import Decimal
 
 class BaseEnv(ABC):
     @abstractmethod
@@ -30,7 +33,13 @@ class BaseEnv(ABC):
     def get_reward(self, action):
         pass
 
+    @abstractmethod
+    def get_opt_policy(self):
+        pass
 
+    @abstractmethod
+    def clean(self):
+        pass
 
 class CSPEnv(BaseEnv):
     def __init__(self, device, distr_type="random", rwd_succ=1, rwd_fail=0, **kwargs):
@@ -74,7 +83,51 @@ class CSPEnv(BaseEnv):
         self.active *= action
         return ret, ract
 
+    def get_opt_policy(self, return_idx=False):
+        n = self.n
+        probs = self.probs.cpu()
 
+        Q = [[[Fraction(0), Fraction(0)], [Fraction(0), Fraction(0)]] for _ in range(n + 1)]
+        V = [[Fraction(0), Fraction(0)] for _ in range(n + 1)]
+
+        Q[n][0][0] = Fraction(-1)
+        Q[n][0][1] = Fraction(-1)
+        V[n][0] = Fraction(-1)
+
+        Q[n][1][0] = Fraction(1)
+        Q[n][1][1] = Fraction(-1)
+        V[n][1] = Fraction(1)
+
+        pi_star = torch.zeros((n, 2), dtype=torch.double, device=self.device)
+        pi_star[n - 1, 1] = 1
+        idx = [n]
+
+        prob_max = Fraction(1)
+        for i in range(n - 1, 0, -1):
+            p_i = Fraction(Decimal.from_float(np.float(probs[i])))
+            prob_max *= 1 - p_i
+
+            Q[i][0][0] = Fraction(-1)
+            Q[i][0][1] = (1 - p_i) * V[i + 1][0] + Fraction(p_i) * V[i + 1][1]
+            
+            Q[i][1][0] = 2 * prob_max - 1
+            Q[i][1][1] = Q[i][0][1]
+
+            for j in range(2):
+                V[i][j] = max(Q[i][j][0], Q[i][j][1])
+
+            if V[i][1] == Q[i][1][0]:
+                pi_star[i - 1, 1] = 1
+                idx.append(i)
+        
+        if return_idx:
+            return idx
+        return pi_star
+
+    def clean(self):
+        del self.v, self.argmax, self.active
+
+        
 
 class OLKnapsackEnv(BaseEnv):
     def __init__(self, device, distr_type="random", distr_granularity=10, B=5, **kwargs):
@@ -121,3 +174,9 @@ class OLKnapsackEnv(BaseEnv):
         rwd = valid * self.v[:, self.i]
         act = torch.ones((self.bs,), dtype=torch.double, device=self.device)
         return rwd, act
+    
+    def get_opt_policy(self, return_idx=False):
+        return None
+    
+    def clean(self):
+        del self.v, self.s, self.sum

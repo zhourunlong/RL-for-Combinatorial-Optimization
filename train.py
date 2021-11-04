@@ -164,9 +164,11 @@ if __name__ == "__main__":
     n = n_start - step
     num_episode = ((n_end - n_start) // step + 1) * args.phase_episode
 
-    running_reward = [0 for _ in range(num_episode // args.curve_buffer_size)]
-    running_kappa = [0 for _ in range(num_episode // args.curve_buffer_size)]
-    reward_buf, kappa_buf = 0, 0
+    arr_size = num_episode // args.curve_buffer_size
+    num_samples = np.zeros(arr_size, dtype=np.uint64)
+    running_reward = np.zeros(arr_size)
+    running_kappa = np.zeros(arr_size)
+    cnt_samples, reward_buf, kappa_buf = 0, 0, 0
 
     with tqdm(range(num_episode), desc="Training") as pbar:
         for episode in pbar:
@@ -195,13 +197,11 @@ if __name__ == "__main__":
                     else:
                         sampler = copy.deepcopy(agent)
 
-                phi = agent.get_phi_all()
-                idx = opt_tabular(env.probs.cpu().numpy())
-                policy_star = torch.zeros((n, 2), dtype=torch.double, device=args.device)
-                for i in idx:
-                    policy_star[i - 1, 1] = 1
+                #pi_star = env.get_opt_policy()
+                #phi = agent.get_phi_all()
             
             reward = collect_data(env, sampler, agent)
+            cnt_samples += n * batch_size
             agent.update_param()
             reward_buf += reward
             if reward > best:
@@ -209,11 +209,13 @@ if __name__ == "__main__":
                 agent_best = copy.deepcopy(agent)
                 best_changed = True
 
-            kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi).cpu().numpy()
+            #kappa = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
+            kappa = 1
             kappa_buf += kappa
 
             if (episode + 1) % args.curve_buffer_size == 0:
                 idx = episode // args.curve_buffer_size
+                num_samples[idx] = cnt_samples
                 running_reward[idx] = reward_buf / args.curve_buffer_size
                 running_kappa[idx] = kappa_buf / args.curve_buffer_size
                 reward_buf, kappa_buf = 0, 0
@@ -221,14 +223,15 @@ if __name__ == "__main__":
             pbar.set_description("Epi: %d, N: %d, R: %2.4f, K: %3.3f" % (episode, n, reward, kappa))
 
             if (episode + 1) % args.save_episode == 0:
-                del env.v, env.argmax, env.active
+                env.clean()
                 package = {"agent":agent, "envs":envs, "best": best, "agent_best":agent_best, "sampler":sampler}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
 
-                plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
-                if best_changed:
-                    plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
-                    best_changed = False
+                #plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
+                #if best_changed:
+                    #plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
+                    #best_changed = False
                 
                 len = (episode + 1) // args.curve_buffer_size
-                plot_rl_fig(running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve.jpg"), args.curve_buffer_size)
+                plot_rl_fig(np.arange(1, len + 1) * args.curve_buffer_size, "Episodes", running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve_episode.jpg"))
+                plot_rl_fig(num_samples[:len], "Samples", running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve_sample.jpg"))

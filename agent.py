@@ -27,6 +27,10 @@ class BaseAgent(ABC):
     @abstractmethod
     def get_phi_all(self):
         pass
+    
+    @abstractmethod
+    def get_policy(self, **kwargs):
+        pass
 
     def get_logits(self, states):
         phi = self.get_phi_batch(states)
@@ -35,10 +39,6 @@ class BaseAgent(ABC):
     def get_accept_prob(self, states):
         params = self.get_logits(states)
         return torch.sigmoid(params).view(-1,)
-    
-    def get_policy(self):
-        phi = self.get_phi_all().view(2 * self.n, -1)
-        return torch.sigmoid(phi @ self.theta).view(self.n, 2)
     
     def get_action(self, states):
         params = self.get_logits(states)
@@ -159,13 +159,17 @@ class CSPAgent(BaseAgent):
         phi = self.get_phi_batch(torch.stack((f, x), dim=1))
         return phi.view(self.n, 2, -1)
 
+    def get_policy(self):
+        phi = self.get_phi_all().view(2 * self.n, -1)
+        return torch.sigmoid(phi @ self.theta).view(self.n, 2)
 
 
-class OLKnapsackAgent():
-    def __init__(self, device, lr=0.001, d0=10, L=0, W=10, **kwargs):
+
+class OLKnapsackAgent(BaseAgent):
+    def __init__(self, device, lr=0.001, d0=3, L=0, W=10, **kwargs):
         self.lr = float(lr)
         self.d0 = int(d0)
-        self.d = self.d0 * 2
+        self.d = self.d0 ** 4
         self.L = float(L)
         self.W = int(W)
         self.device = device
@@ -182,14 +186,14 @@ class OLKnapsackAgent():
     def get_phi_batch(self, states):
         bs = states.shape[0]
 
-        f_axis = torch.ones((bs, self.d0), dtype=torch.double, device=self.device)
-        i_axis = torch.cat((torch.ones((bs, 1), dtype=torch.double, device=self.device), states[:, 1].view(-1, 1)), dim=-1)
-        
-        fractions = states[:, 0]
+        ax = torch.zeros((bs, 4, self.d0), dtype=torch.double, device=self.device)
+        ax[:, :, 0] = 1
         for i in range(1, self.d0):
-            f_axis[:, i] = f_axis[:, i - 1] * fractions
+            ax[:, :, i] = ax[:, :, i - 1] * states
 
-        phi = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1)
+        t1 = torch.bmm(ax[:, 0, :].unsqueeze(2), ax[:, 1, :].unsqueeze(1)).view(bs, -1, 1)
+        t2 = torch.bmm(ax[:, 2, :].unsqueeze(2), ax[:, 3, :].unsqueeze(1)).view(bs, 1, -1)
+        phi = torch.bmm(t1, t2).view(bs, -1)
         return phi
     
     def get_phi_all(self):
@@ -202,3 +206,6 @@ class OLKnapsackAgent():
         phi = self.get_phi_batch(torch.stack((f, x), dim=1))
         return phi.view(self.n, 2, -1)
     
+    def get_policy(self):
+        phi = self.get_phi_all().view(2 * self.n, -1)
+        return torch.sigmoid(phi @ self.theta).view(self.n, 2)
