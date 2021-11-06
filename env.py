@@ -83,7 +83,7 @@ class CSPEnv(BaseEnv):
         self.active *= action
         return ret, ract
 
-    def get_opt_policy(self, return_idx=False):
+    def get_opt_policy(self):
         n = self.n
         probs = self.probs.cpu()
 
@@ -100,7 +100,6 @@ class CSPEnv(BaseEnv):
 
         pi_star = torch.zeros((n, 2), dtype=torch.double, device=self.device)
         pi_star[n - 1, 1] = 1
-        idx = [n]
 
         prob_max = Fraction(1)
         for i in range(n - 1, 0, -1):
@@ -118,10 +117,7 @@ class CSPEnv(BaseEnv):
 
             if V[i][1] == Q[i][1][0]:
                 pi_star[i - 1, 1] = 1
-                idx.append(i)
-        
-        if return_idx:
-            return idx
+
         return pi_star
 
     def clean(self):
@@ -161,15 +157,15 @@ class OLKnapsackEnv(BaseEnv):
     def new_instance(self):
         self.i = 0
         self.v = self.sample_distr(self.Fv)
-        self.s = self.sample_distr(self.Fs) / self.B
+        self.s = self.sample_distr(self.Fs)
         self.sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
         #self.active = torch.ones_like(self.sum)
 
     def get_state(self):
-        return torch.stack((self.v[:, self.i], self.s[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum), dim=1)
+        return torch.stack((self.v[:, self.i], self.s[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum / self.B), dim=1)
     
     def get_reward(self, action):
-        valid = (1 - action) * ((self.sum + self.s[:, self.i]) <= 1)
+        valid = (1 - action) * ((self.sum + self.s[:, self.i]) <= self.B)
         self.sum +=  valid * self.s[:, self.i]
         rwd = valid * self.v[:, self.i]
         act = torch.ones((self.bs,), dtype=torch.double, device=self.device)

@@ -20,11 +20,9 @@ def get_args():
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--config", default="config.ini", type=str)
     parser.add_argument("--problem", choices=["CSP", "OLKnapsack"], required=True)
-    parser.add_argument("--save-episode", default=1000, type=int)
-    parser.add_argument("--phase-episode", default=10000, type=int)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
-    parser.add_argument("--sample-type", default="pi^t", choices=["pi^0", "pi^t", "curriculum"])
+    parser.add_argument("--sample-type", default="curriculum", choices=["pi^0", "pi^t", "curriculum"])
     parser.add_argument("--load-path", default=None, type=str)
     return parser.parse_args()
 
@@ -32,14 +30,14 @@ def set_seed(seed):
 	random.seed(seed)
 	os.environ['PYTHONHASHSEED'] = str(seed)
 	np.random.seed(seed)
-	torch.manual_seed(seed)
+	torch.manual_seed(seed) 
 	torch.cuda.manual_seed(seed)
 	torch.cuda.manual_seed_all(seed)
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
 
-def unpack_config(batch_size, n_start, n_end, step, **kwargs):
-    return int(batch_size), int(n_start), int(n_end), int(step)
+def unpack_config(batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end, step, **kwargs):
+    return int(batch_size), int(grad_cummu_step), int(phase_episode), int(save_episode), int(n_start), int(n_end), int(step)
 
 def unpack_checkpoint(agent, envs, best, agent_best, sampler, **kwargs):
     return agent, envs, best.cpu(), agent_best, sampler
@@ -86,8 +84,6 @@ def collect_data(env, sampler, agent):
 if __name__ == "__main__":
     args = get_args()
 
-    assert args.save_episode % args.curve_buffer_size == 0
-
     if args.load_path is not None:
         args.config = os.path.join(os.path.dirname(args.load_path), "../config.ini")
 
@@ -95,7 +91,9 @@ if __name__ == "__main__":
     parser.optionxform = lambda option: option
     parser.read(args.config, encoding='utf-8')
     config = dict(parser.items(args.problem))
-    batch_size, n_start, n_end, step = unpack_config(**config)
+    batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end, step = unpack_config(**config)
+
+    assert save_episode % args.curve_buffer_size == 0
 
     set_seed(args.seed)
 
@@ -162,7 +160,7 @@ if __name__ == "__main__":
     envs.insert(0, None)
 
     n = n_start - step
-    num_episode = ((n_end - n_start) // step + 1) * args.phase_episode
+    num_episode = ((n_end - n_start) // step + 1) * phase_episode
 
     arr_size = num_episode // args.curve_buffer_size
     num_samples = np.zeros(arr_size, dtype=np.uint64)
@@ -172,7 +170,7 @@ if __name__ == "__main__":
 
     with tqdm(range(num_episode), desc="Training") as pbar:
         for episode in pbar:
-            if episode % args.phase_episode == 0:
+            if episode % phase_episode == 0:
                 n += step
                 agent.update_n(n)
                 envs.pop(0)
@@ -197,20 +195,23 @@ if __name__ == "__main__":
                     else:
                         sampler = copy.deepcopy(agent)
 
-                #pi_star = env.get_opt_policy()
-                #phi = agent.get_phi_all()
+                pi_star = env.get_opt_policy()
+                phi = agent.get_phi_all()
             
-            reward = collect_data(env, sampler, agent)
-            cnt_samples += n * batch_size
+            reward = 0
+            for step in range(grad_cummu_step):
+                reward += collect_data(env, sampler, agent)
             agent.update_param()
+
+            cnt_samples += n * grad_cummu_step * batch_size
+            reward /= grad_cummu_step
             reward_buf += reward
             if reward > best:
                 best = reward
                 agent_best = copy.deepcopy(agent)
                 best_changed = True
 
-            #kappa = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
-            kappa = 1
+            kappa = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
             kappa_buf += kappa
 
             if (episode + 1) % args.curve_buffer_size == 0:
@@ -222,15 +223,15 @@ if __name__ == "__main__":
         
             pbar.set_description("Epi: %d, N: %d, R: %2.4f, K: %3.3f" % (episode, n, reward, kappa))
 
-            if (episode + 1) % args.save_episode == 0:
+            if (episode + 1) % save_episode == 0:
                 env.clean()
                 package = {"agent":agent, "envs":envs, "best": best, "agent_best":agent_best, "sampler":sampler}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
 
-                #plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
-                #if best_changed:
-                    #plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
-                    #best_changed = False
+                plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
+                if best_changed:
+                    plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
+                    best_changed = False
                 
                 len = (episode + 1) // args.curve_buffer_size
                 plot_rl_fig(np.arange(1, len + 1) * args.curve_buffer_size, "Episodes", running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve_episode.jpg"))

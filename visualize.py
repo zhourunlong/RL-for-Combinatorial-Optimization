@@ -30,14 +30,8 @@ def plot_prob_fig(agent, env, pic_dir, device):
     ax.plot(x, max_acc, label="P[Accept|PrefMax]")
     ax.plot(x, non_max_acc, label="P[Accept|NotPrefMax]")
 
-    idx = env.get_opt_policy(return_idx=True)
-    y = np.zeros_like(x)
-    th = np.min(idx)
-    i1 = n * (th - 1) // env.n
-    i2 = (n * th + env.n - 1) // env.n
-    y[i1:i2] = np.arange(0, 1, 1 / (i2 - i1))
-    y[i2:] = 1
-    ax.plot(x, y, label="Optimal")
+    pi_star = env.get_opt_policy()
+    ax.plot(np.arange(0, env.n + 1) / env.n, np.concatenate(([0], pi_star[:, 1].cpu().numpy())), label="Optimal")
 
     ax.set_title("Plot of Policy", fontsize=40)
     ax.set_xlabel("Time", fontsize=30)
