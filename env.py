@@ -171,8 +171,39 @@ class OLKnapsackEnv(BaseEnv):
         act = torch.ones((self.bs,), dtype=torch.double, device=self.device)
         return rwd, act
     
-    def get_opt_policy(self, return_idx=False):
-        return None
+    def get_opt_policy(self):
+        pass
     
     def clean(self):
         del self.v, self.s, self.sum
+    
+    def bang_per_buck(self):
+        p = 0.2
+        k = int(p * self.n)
+        sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
+        rwd = torch.zeros_like(sum)
+        bpb = self.v[:, :k] / self.s[:, :k]
+
+        for i in range(k):
+            valid = (sum + self.s[:, i]) <= self.B
+            sum += valid * self.s[:, i]
+            rwd += valid * self.v[:, i]
+
+        ax = torch.arange(self.bs, dtype=torch.long, device=self.device)
+        bpb, idx = torch.sort(bpb, descending=True)
+        print(ax, bpb, idx)
+        r = torch.ones_like(sum)
+        sr = torch.zeros_like(sum)
+        for i in range(k):
+            r = torch.where(sr < self.B, bpb[:, i], r)
+            sr += self.s[ax, idx[:, i]]
+        
+        print(r)
+
+        for i in range(k, self.n):
+            action = ((self.v[:, i] / self.s[:, i]) < r).double()
+            valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
+            sum += valid * self.s[:, i]
+            rwd += valid * self.v[:, i]
+        
+        return rwd.mean(0)

@@ -13,7 +13,6 @@ def calc_sigma(probs, policy_d, policy_t, phi):
     d = calc_distr(probs, policy_d)
     w = (1 - policy_t) ** 2 + policy_t ** 2
     raw = phi.unsqueeze(-1) @ phi.unsqueeze(-2)
-    #print(d * w)
     sigma = ((d * w).view(-1, 2, 1, 1) * raw).sum((0, 1))
     return sigma
     

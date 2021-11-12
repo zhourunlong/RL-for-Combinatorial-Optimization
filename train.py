@@ -43,7 +43,6 @@ def unpack_checkpoint(agent, envs, best, agent_best, sampler, **kwargs):
     return agent, envs, best.cpu(), agent_best, sampler
 
 def collect_data(env, sampler, agent):
-    agent.zero_grad()
     env.new_instance()
 
     csiz = env.bs // (env.n + 1)
@@ -165,8 +164,14 @@ if __name__ == "__main__":
     arr_size = num_episode // args.curve_buffer_size
     num_samples = np.zeros(arr_size, dtype=np.uint64)
     running_reward = np.zeros(arr_size)
-    running_kappa = np.zeros(arr_size)
-    cnt_samples, reward_buf, kappa_buf = 0, 0, 0
+    additional_arr = np.zeros(arr_size)
+    cnt_samples, reward_buf, additional_buf = 0, 0, 0
+    if args.problem == "CSP":
+        additional_label, ad_lb_short = "log(Kappa)", "K"
+        newax = True
+    elif args.problem == "OLKnapsack":
+        additional_label, ad_lb_short = "Bang-per-Buck", "B"
+        newax = False
 
     with tqdm(range(num_episode), desc="Training") as pbar:
         for episode in pbar:
@@ -195,11 +200,13 @@ if __name__ == "__main__":
                     else:
                         sampler = copy.deepcopy(agent)
 
-                pi_star = env.get_opt_policy()
-                phi = agent.get_phi_all()
+                if args.problem == "CSP":
+                    pi_star = env.get_opt_policy()
+                    phi = agent.get_phi_all()
             
             reward = 0
-            for step in range(grad_cummu_step):
+            agent.zero_grad()
+            for gstep in range(grad_cummu_step):
                 reward += collect_data(env, sampler, agent)
             agent.update_param()
 
@@ -211,28 +218,36 @@ if __name__ == "__main__":
                 agent_best = copy.deepcopy(agent)
                 best_changed = True
 
-            kappa = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
-            kappa_buf += kappa
+            if args.problem == "CSP":
+                val = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
+            elif args.problem == "OLKnapsack":
+                val = env.bang_per_buck()
+            
+            additional_buf += val
 
             if (episode + 1) % args.curve_buffer_size == 0:
                 idx = episode // args.curve_buffer_size
                 num_samples[idx] = cnt_samples
                 running_reward[idx] = reward_buf / args.curve_buffer_size
-                running_kappa[idx] = kappa_buf / args.curve_buffer_size
-                reward_buf, kappa_buf = 0, 0
+                if args.problem == "CSP":
+                    additional_arr[idx] = np.log(additional_buf / args.curve_buffer_size)
+                else:
+                    additional_arr[idx] = additional_buf / args.curve_buffer_size
+                reward_buf, additional_buf = 0, 0
         
-            pbar.set_description("Epi: %d, N: %d, R: %2.4f, K: %3.3f" % (episode, n, reward, kappa))
+            pbar.set_description("Epi: %d, N: %d, R: %2.4f, %s: %2.4f" % (episode, n, reward, ad_lb_short, val))
 
             if (episode + 1) % save_episode == 0:
                 env.clean()
                 package = {"agent":agent, "envs":envs, "best": best, "agent_best":agent_best, "sampler":sampler}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
 
-                plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
-                if best_changed:
-                    plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
-                    best_changed = False
+                if args.problem == "CSP":
+                    plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
+                    if best_changed:
+                        plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
+                        best_changed = False
                 
                 len = (episode + 1) // args.curve_buffer_size
-                plot_rl_fig(np.arange(1, len + 1) * args.curve_buffer_size, "Episodes", running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve_episode.jpg"))
-                plot_rl_fig(num_samples[:len], "Samples", running_reward[:len], "Reward", np.log(running_kappa[:len]), "log(Kappa)", os.path.join(logdir, "result/curve_sample.jpg"))
+                plot_rl_fig(np.arange(1, len + 1) * args.curve_buffer_size, "Episodes", running_reward[:len], "Reward", additional_arr[:len], additional_label, newax, os.path.join(logdir, "result/curve_episode.jpg"))
+                plot_rl_fig(num_samples[:len], "Samples", running_reward[:len], "Reward", additional_arr[:len], additional_label, newax, os.path.join(logdir, "result/curve_sample.jpg"))
