@@ -148,7 +148,8 @@ if __name__ == "__main__":
             agent = CSPAgent(args.device, **config)
         elif args.problem == "OLKnapsack":
             env = OLKnapsackEnv(args.device, **config)
-            agent = OLKnapsackAgent(args.device, **config)
+            #agent = OLKnapsackAgent(args.device, **config)
+            agent = OLKnapsackNNAgent(args.device, **config)
         
         envs = []
         for n in range(n_end, n_start - step, -step):
@@ -215,8 +216,8 @@ if __name__ == "__main__":
             reward_buf += reward
             if reward > best:
                 best = reward
-                agent_best = copy.deepcopy(agent)
-                best_changed = True
+                if args.problem == "CSP":
+                    plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
 
             if args.problem == "CSP":
                 val = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
@@ -244,9 +245,6 @@ if __name__ == "__main__":
 
                 if args.problem == "CSP":
                     plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
-                    if best_changed:
-                        plot_prob_fig(agent_best, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
-                        best_changed = False
                 
                 len = (episode + 1) // args.curve_buffer_size
                 plot_rl_fig(np.arange(1, len + 1) * args.curve_buffer_size, "Episodes", running_reward[:len], "Reward", additional_arr[:len], additional_label, newax, os.path.join(logdir, "result/curve_episode.jpg"))

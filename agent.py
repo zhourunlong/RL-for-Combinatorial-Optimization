@@ -5,9 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch import autograd
-from torch.autograd import Variable
 
-class BaseAgent(ABC):
+class LogLinearAgent(ABC):
     @abstractmethod
     def __init__(self, **kwargs):
         pass
@@ -88,7 +87,7 @@ class BaseAgent(ABC):
         
         # NPG
         self.grads += (As.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
-        self.F += (grads_logp.view(-1, self.d, 1) @ grads_logp.view(-1, 1, self.d)).mean(0)
+        self.F += (grads_logp.T @ grads_logp) / grads_logp.shape[0]
         self.cnt += 1
 
         # NPG unif(A)
@@ -118,7 +117,7 @@ class BaseAgent(ABC):
 
 
 
-class CSPAgent(BaseAgent):
+class CSPAgent(LogLinearAgent):
     def __init__(self, device, lr=0.001, d0=10, L=0, W=10, **kwargs):
         self.lr = float(lr)
         self.d0 = int(d0)
@@ -165,7 +164,7 @@ class CSPAgent(BaseAgent):
 
 
 
-class OLKnapsackAgent(BaseAgent):
+class OLKnapsackAgent(LogLinearAgent):
     def __init__(self, device, lr=0.001, d0=3, L=0, W=10, **kwargs):
         self.lr = float(lr)
         self.d0 = int(d0)
@@ -209,3 +208,98 @@ class OLKnapsackAgent(BaseAgent):
     def get_policy(self):
         phi = self.get_phi_all().view(2 * self.n, -1)
         return torch.sigmoid(phi @ self.theta).view(self.n, 2)
+
+
+
+class OLKnapsackNNAgent():
+    def __init__(self, device, lr=0.001, d0=3, L=0, W=10, **kwargs):
+        self.lr = float(lr)
+        self.d0 = int(d0)
+        self.L = float(L)
+        self.W = int(W)
+        self.device = device
+
+        self.model = nn.Sequential(
+            nn.Linear(4, 50),
+            #nn.ReLU(),
+            nn.Tanh(),
+            nn.Linear(50, 50),
+            #nn.ReLU(),
+            nn.Tanh(),
+            nn.Linear(50, 50),
+            #nn.ReLU(),
+            nn.Tanh(),
+            nn.Linear(50, 2)
+        ).double()
+        self.model.to(self.device)
+
+        self.d = sum(p.numel() for p in self.model.parameters())
+    
+    def move_device(self, device):
+        self.device = device
+        self.model.to(self.device)
+
+    def update_n(self, n):
+        self.n = n
+
+    def get_action(self, states):
+        with torch.no_grad():
+            params = self.model(states)
+
+            probs = F.softmax(params, dim=-1)
+            log_probs = F.log_softmax(params, dim=-1)
+        
+            entropy = -(probs * log_probs).sum(-1)
+            
+            action = probs.multinomial(1)
+
+        return action.double().view(-1,), entropy
+    
+    def query_sa(self, states, actions):
+        self.model.zero_grad()
+
+        params = self.model(states)
+
+        probs = F.softmax(params, dim=-1)
+        log_probs = F.log_softmax(params, dim=-1)
+
+        actions = actions.long().view(states.shape[0], 1)
+
+        log_prob = log_probs.gather(1, actions).view(-1,)
+
+        funcs = params.gather(1, actions).view(-1,) - (probs.detach() * params).sum(-1)
+
+        bs = states.shape[0]
+        grads_logp = torch.zeros((bs, self.d), dtype=torch.double, device=self.device)
+        for i in range(bs):
+            for p in self.model.parameters():
+                p.grad = None
+            funcs[i].backward(retain_graph=True)
+            cnt = 0
+            for p in self.model.parameters():
+                grads_logp[i, cnt:cnt+p.numel()] = p.grad.view(-1,)
+                cnt += p.numel()
+
+        return log_prob, grads_logp
+
+    def zero_grad(self):
+        self.grads = torch.zeros((self.d, 1), dtype=torch.double, device=self.device)
+        self.F = torch.zeros((self.d, self.d), dtype=torch.double, device=self.device)
+        self.cnt = 0
+    
+    def store_grad(self, As, grads_logp):
+        self.grads += (As.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
+        self.F += (grads_logp.T @ grads_logp) / grads_logp.shape[0]
+        self.cnt += 1
+        
+    def update_param(self):
+        ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
+
+        norm = torch.norm(ngrads)
+        if norm > self.W:
+            ngrads *= self.W / norm
+
+        cnt = 0
+        for p in self.model.parameters():
+            p.data += self.lr * self.n * ngrads[cnt:cnt+p.numel()].view_as(p.data)
+            cnt += p.numel()
