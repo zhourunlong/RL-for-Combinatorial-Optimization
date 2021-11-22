@@ -39,8 +39,8 @@ def set_seed(seed):
 def unpack_config(batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end, step, **kwargs):
     return int(batch_size), int(grad_cummu_step), int(phase_episode), int(save_episode), int(n_start), int(n_end), int(step)
 
-def unpack_checkpoint(agent, envs, best, agent_best, sampler, **kwargs):
-    return agent, envs, best.cpu(), agent_best, sampler
+def unpack_checkpoint(agent, envs, best, sampler, **kwargs):
+    return agent, envs, best.cpu(), sampler
 
 def collect_data(env, sampler, agent):
     env.new_instance()
@@ -76,7 +76,8 @@ def collect_data(env, sampler, agent):
     
     idx[-csiz:] = 0.75
     rewards = rewards * (4 * idx - 2) - agent.L * actives * log_probs
-    agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
+    #agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
+    agent.store_grad(rewards[:-csiz], log_probs[:-csiz])
 
     return rewards[-csiz:].mean().detach().cpu()
 
@@ -113,9 +114,9 @@ if __name__ == "__main__":
 
     if args.load_path is not None:
         package = torch.load(args.load_path, map_location=args.device)
-        agent, envs, best, agent_best, sampler = unpack_checkpoint(**package)
+        agent, envs, best, sampler = unpack_checkpoint(**package)
 
-        for it in envs + [agent, agent_best, sampler]:
+        for it in envs + [agent, sampler]:
             it.move_device(args.device)
         
         #env = envs[0]
@@ -209,7 +210,7 @@ if __name__ == "__main__":
             agent.zero_grad()
             for gstep in range(grad_cummu_step):
                 reward += collect_data(env, sampler, agent)
-            agent.update_param()
+            #agent.update_param()
 
             cnt_samples += n * grad_cummu_step * batch_size
             reward /= grad_cummu_step
@@ -240,7 +241,7 @@ if __name__ == "__main__":
 
             if (episode + 1) % save_episode == 0:
                 env.clean()
-                package = {"agent":agent, "envs":envs, "best": best, "agent_best":agent_best, "sampler":sampler}
+                package = {"agent":agent, "envs":envs, "best": best, "sampler":sampler}
                 torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
 
                 if args.problem == "CSP":

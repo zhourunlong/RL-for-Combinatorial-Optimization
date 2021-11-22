@@ -221,14 +221,11 @@ class OLKnapsackNNAgent():
 
         self.model = nn.Sequential(
             nn.Linear(4, 50),
-            #nn.ReLU(),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(50, 50),
-            #nn.ReLU(),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(50, 50),
-            #nn.ReLU(),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(50, 2)
         ).double()
         self.model.to(self.device)
@@ -271,6 +268,9 @@ class OLKnapsackNNAgent():
 
         bs = states.shape[0]
         grads_logp = torch.zeros((bs, self.d), dtype=torch.double, device=self.device)
+        
+
+        '''
         for i in range(bs):
             for p in self.model.parameters():
                 p.grad = None
@@ -279,6 +279,37 @@ class OLKnapsackNNAgent():
             for p in self.model.parameters():
                 grads_logp[i, cnt:cnt+p.numel()] = p.grad.view(-1,)
                 cnt += p.numel()
+        '''
+            
+        '''
+        lst = list(self.model.parameters())
+        x1 = states.unsqueeze(-1)
+        A1 = lst[0].data
+        b1 = lst[1].data.view(1, -1, 1)
+        x2 = nn.ReLU()(A1 @ x1 + b1)
+        A2 = lst[2].data
+        b2 = lst[3].data.view(1, -1, 1)
+        x3 = nn.ReLU()(A2 @ x2 + b2)
+        A3 = lst[4].data
+        b3 = lst[5].data.view(1, -1, 1)
+        x4 = nn.ReLU()(A3 @ x3 + b3)
+        A4 = lst[6].data
+        b4 = lst[7].data.view(1, -1, 1)
+        y = A4 @ x4 + b4
+
+        deriv = torch.zeros((bs, 2, self.d), dtype=torch.double, device=self.device)
+        
+        deriv[:, 0, -2] = 1
+        deriv[:, 1, -1] = 1
+        
+        deriv[:, 0, -102:-52] = A4[0, :]
+        deriv[:, 1, -52:-2] = A4[1, :]
+
+        axis = torch.arange(bs, dtype=torch.long, device=self.device)
+        _grads_logp = deriv[axis, actions.view(-1), :].squeeze(1) - (probs.detach().unsqueeze(-1) * deriv).sum(1)
+        
+        print(torch.norm(grads_logp[:, -102:] - _grads_logp[:, -102:]))
+        '''
 
         return log_prob, grads_logp
 
@@ -287,17 +318,30 @@ class OLKnapsackNNAgent():
         self.F = torch.zeros((self.d, self.d), dtype=torch.double, device=self.device)
         self.cnt = 0
     
+    '''
     def store_grad(self, As, grads_logp):
         self.grads += (As.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
         self.F += (grads_logp.T @ grads_logp) / grads_logp.shape[0]
         self.cnt += 1
+    '''
+
+    def store_grad(self, As, logp):
+        for p in self.model.parameters():
+            p.grad = None
+        fun = (As * logp).mean()
+        fun.backward()
+        for p in self.model.parameters():
+            p.data += self.lr * p.grad
         
     def update_param(self):
-        ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
+        #ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
+        ngrads = self.grads
 
-        norm = torch.norm(ngrads)
-        if norm > self.W:
-            ngrads *= self.W / norm
+        #norm = torch.norm(ngrads)
+        #if norm > self.W:
+        #    ngrads *= self.W / norm
+
+        #print(norm)
 
         cnt = 0
         for p in self.model.parameters():
