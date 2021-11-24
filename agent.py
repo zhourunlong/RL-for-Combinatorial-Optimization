@@ -212,7 +212,7 @@ class OLKnapsackAgent(LogLinearAgent):
 
 
 class OLKnapsackNNAgent():
-    def __init__(self, device, lr=0.001, d0=3, L=0, W=10, **kwargs):
+    def __init__(self, device, lr, d0, L, W, **kwargs):
         self.lr = float(lr)
         self.d0 = int(d0)
         self.L = float(L)
@@ -231,6 +231,7 @@ class OLKnapsackNNAgent():
         self.model.to(self.device)
 
         self.d = sum(p.numel() for p in self.model.parameters())
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
     
     def move_device(self, device):
         self.device = device
@@ -314,8 +315,8 @@ class OLKnapsackNNAgent():
         return log_prob, grads_logp
 
     def zero_grad(self):
-        self.grads = torch.zeros((self.d, 1), dtype=torch.double, device=self.device)
-        self.F = torch.zeros((self.d, self.d), dtype=torch.double, device=self.device)
+        #self.grads = torch.zeros((self.d, 1), dtype=torch.double, device=self.device)
+        #self.F = torch.zeros((self.d, self.d), dtype=torch.double, device=self.device)
         self.cnt = 0
     
     '''
@@ -326,12 +327,10 @@ class OLKnapsackNNAgent():
     '''
 
     def store_grad(self, As, logp):
-        for p in self.model.parameters():
-            p.grad = None
+        self.optimizer.zero_grad()
         fun = (As * logp).mean()
         fun.backward()
-        for p in self.model.parameters():
-            p.data += self.lr * p.grad
+        self.optimizer.step()
         
     def update_param(self):
         #ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]

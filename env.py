@@ -178,7 +178,7 @@ class OLKnapsackEnv(BaseEnv):
         del self.v, self.s, self.sum
     
     def bang_per_buck(self):
-        p = 0.15
+        p = 0.10
         k = int(p * self.n)
         sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
         rwd = torch.zeros_like(sum)
@@ -194,14 +194,14 @@ class OLKnapsackEnv(BaseEnv):
         #print(ax, bpb, idx)
         r = torch.ones_like(sum)
         sr = torch.zeros_like(sum)
-        th = (self.B - sum) * k / (self.n - k)
+        th = (self.B - sum) * p
         for i in range(k):
             r = torch.where(sr < th, bpb[:, i], r)
             sr += self.s[ax, idx[:, i]]
         
         #print(r)
 
-        #r = 1.3
+        r = 1.2
 
         for i in range(k, self.n):
             action = ((self.v[:, i] / self.s[:, i]) < r).double()
