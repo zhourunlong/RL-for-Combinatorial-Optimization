@@ -328,7 +328,7 @@ class OLKnapsackNNAgent():
 
     def store_grad(self, As, logp):
         self.optimizer.zero_grad()
-        fun = (As * logp).mean()
+        fun = -(As * logp).mean()
         fun.backward()
         self.optimizer.step()
         
