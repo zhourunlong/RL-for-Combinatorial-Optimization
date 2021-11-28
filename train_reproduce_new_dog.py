@@ -45,40 +45,23 @@ def unpack_checkpoint(agent, envs, best, sampler, **kwargs):
 def collect_data(env, sampler, agent):
     env.new_instance()
 
-    csiz = env.bs // (env.n + 1)
-    rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
-    log_probs, idx, actives = torch.zeros_like(rewards), torch.zeros_like(rewards), torch.zeros_like(rewards)
-    grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
+    rewards = torch.zeros((env.bs, env.n), dtype=torch.double, device=env.device)
+    log_probs = torch.zeros_like(rewards)
 
     for i in range(env.n):
-        il, ir = -(i + 2) * csiz, -(i + 1) * csiz
-
         state = env.get_state()
-        s_sampler, s_agent = state[:ir], state[il:]
-
-        a_sampler, _ = sampler.get_action(s_sampler)
-        a_agent, entropy = agent.get_action(s_agent)
-
-        id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
-        idx[il:ir] = id
-        ax = id * a_sampler[-csiz:] + (1 - id) * a_agent[:csiz]
-        
-        action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
+        action, entropy = agent.get_action(state)
         reward, active = env.get_reward(action)
 
-        actives[il:ir] = active[il:ir]
-        log_probs[il:ir], grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
-        grads_logp[il:ir] = grad_logp * active[il:ir].unsqueeze(-1)
-        
-        rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (1 - id) * entropy[:csiz])
-        rewards[ir:-csiz] += reward[ir:-csiz] + agent.L * active[ir:-csiz] * entropy[csiz:-csiz]
-        rewards[-csiz:] += reward[-csiz:]
-    
-    idx[-csiz:] = 0.75
-    rewards = rewards * (4 * idx - 2) - agent.L * actives * log_probs
-    agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
+        log_prob, grad_logp = agent.query_sa(state, action)
 
-    return rewards[-csiz:].mean().detach().cpu()
+        rewards[:, -i] = reward
+        log_probs[:, -i] = log_prob
+
+    rewards = rewards.cumsum(1)
+    ret = rewards[-1].mean()
+    rewards -= rewards.mean(0, keepdim=True)
+    return ret, (rewards * log_probs).sum(1).mean()
 
 if __name__ == "__main__":
     args = get_args()
@@ -148,7 +131,8 @@ if __name__ == "__main__":
             agent = CSPAgent(args.device, **config)
         elif args.problem == "OLKnapsack":
             env = OLKnapsackEnv(args.device, **config)
-            agent = OLKnapsackAgent(args.device, **config)
+            #agent = OLKnapsackAgent(args.device, **config)
+            agent = OLKnapsackNNAgent(args.device, **config)
         
         envs = []
         for n in range(n_end, n_start - step, -step):
@@ -180,7 +164,7 @@ if __name__ == "__main__":
                 agent.update_n(n)
                 envs.pop(0)
                 env = envs[0]
-                env.set_bs((n + 1) * batch_size) # one more batch for evaluation
+                env.set_bs(batch_size) # one more batch for evaluation
 
                 if args.load_path is None:
                     best = -1e9
@@ -204,11 +188,14 @@ if __name__ == "__main__":
                     pi_star = env.get_opt_policy()
                     phi = agent.get_phi_all()
             
-            reward = 0
-            agent.zero_grad()
+            reward, loss = 0, 0
             for gstep in range(grad_cummu_step):
-                reward += collect_data(env, sampler, agent)
-            agent.update_param()
+                r, l = collect_data(env, sampler, agent)
+                reward += r
+                loss += l
+            reward /= grad_cummu_step
+            loss / grad_cummu_step
+            agent.update_param(loss)
 
             cnt_samples += n * grad_cummu_step * batch_size
             reward /= grad_cummu_step

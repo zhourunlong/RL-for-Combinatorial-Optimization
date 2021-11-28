@@ -169,6 +169,7 @@ class OLKnapsackEnv(BaseEnv):
         self.sum +=  valid * self.s[:, self.i]
         rwd = valid * self.v[:, self.i]
         act = torch.ones((self.bs,), dtype=torch.double, device=self.device)
+        self.i += 1
         return rwd, act
     
     def get_opt_policy(self):

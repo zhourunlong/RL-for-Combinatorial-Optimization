@@ -332,6 +332,7 @@ class OLKnapsackNNAgent():
         fun.backward()
         self.optimizer.step()
         
+    '''
     def update_param(self):
         #ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
         ngrads = self.grads
@@ -346,3 +347,10 @@ class OLKnapsackNNAgent():
         for p in self.model.parameters():
             p.data += self.lr * self.n * ngrads[cnt:cnt+p.numel()].view_as(p.data)
             cnt += p.numel()
+    '''
+
+    def update_param(self, loss):
+        self.optimizer.zero_grad()
+        loss *= -1
+        loss.backward()
+        self.optimizer.step()
