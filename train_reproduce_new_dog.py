@@ -51,7 +51,10 @@ def collect_data(env, sampler, agent):
     for i in range(env.n):
         state = env.get_state()
         action, entropy = agent.get_action(state)
+
         reward, active = env.get_reward(action)
+
+        #print(state[:5], action[:5], reward[:5])
 
         log_prob, grad_logp = agent.query_sa(state, action)
 
@@ -60,8 +63,8 @@ def collect_data(env, sampler, agent):
 
     rewards = rewards.cumsum(1)
     ret = rewards[-1].mean()
-    rewards -= rewards.mean(0, keepdim=True)
-    return ret, (rewards * log_probs).sum(1).mean()
+    #rewards -= rewards.mean(0, keepdim=True)
+    return ret, (rewards * log_probs).mean()
 
 if __name__ == "__main__":
     args = get_args()
@@ -194,7 +197,7 @@ if __name__ == "__main__":
                 reward += r
                 loss += l
             reward /= grad_cummu_step
-            loss / grad_cummu_step
+            loss /= grad_cummu_step
             agent.update_param(loss)
 
             cnt_samples += n * grad_cummu_step * batch_size

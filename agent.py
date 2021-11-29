@@ -20,6 +20,10 @@ class LogLinearAgent(ABC):
         pass
 
     @abstractmethod
+    def clear_params(self):
+        pass
+
+    @abstractmethod
     def get_phi_batch(self, states):
         pass
     
@@ -134,6 +138,9 @@ class CSPAgent(LogLinearAgent):
 
     def update_n(self, n):
         self.n = n
+    
+    def clear_params(self):
+        self.theta = torch.zeros_like(self.theta)
 
     def get_phi_batch(self, states):
         bs = states.shape[0]
@@ -181,6 +188,9 @@ class OLKnapsackAgent(LogLinearAgent):
 
     def update_n(self, n):
         self.n = n
+    
+    def clear_params(self):
+        self.theta = torch.zeros_like(self.theta)
 
     def get_phi_batch(self, states):
         bs = states.shape[0]
@@ -212,23 +222,15 @@ class OLKnapsackAgent(LogLinearAgent):
 
 
 class OLKnapsackNNAgent():
-    def __init__(self, device, lr, d0, L, W, **kwargs):
+    def __init__(self, device, lr, d0, L, W, width, depth, **kwargs):
         self.lr = float(lr)
         self.d0 = int(d0)
         self.L = float(L)
         self.W = int(W)
         self.device = device
-
-        self.model = nn.Sequential(
-            nn.Linear(4, 50),
-            nn.ReLU(),
-            nn.Linear(50, 50),
-            nn.ReLU(),
-            nn.Linear(50, 50),
-            nn.ReLU(),
-            nn.Linear(50, 2)
-        ).double()
-        self.model.to(self.device)
+        
+        self.width = width
+        self.clear_params()
 
         self.d = sum(p.numel() for p in self.model.parameters())
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
@@ -239,6 +241,18 @@ class OLKnapsackNNAgent():
 
     def update_n(self, n):
         self.n = n
+    
+    def clear_params(self):
+        self.model = nn.Sequential(
+            nn.Linear(4, self.width),
+            nn.ReLU(),
+            nn.Linear(self.width, self.width),
+            nn.ReLU(),
+            nn.Linear(self.width, self.width),
+            nn.ReLU(),
+            nn.Linear(self.width, 2)
+        ).double()
+        self.model.to(self.device)
 
     def get_action(self, states):
         with torch.no_grad():

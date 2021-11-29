@@ -22,7 +22,8 @@ def get_args():
     parser.add_argument("--problem", choices=["CSP", "OLKnapsack"], required=True)
     parser.add_argument("--seed", default=2018011309, type=int)
     parser.add_argument("--curve-buffer-size", default=100, type=int)
-    parser.add_argument("--sample-type", default="curriculum", choices=["pi^0", "pi^t", "curriculum"])
+    parser.add_argument("--sample-type", default="pi^t-pi^0", choices=["pi^0", "pi^t", "pi^t-pi^0"])
+    parser.add_argument("--init-type", default="pi^0-pi^t", choices=["pi^0", "pi^0-pi^t"])
     parser.add_argument("--load-path", default=None, type=str)
     return parser.parse_args()
 
@@ -77,11 +78,14 @@ def collect_data(env, sampler, agent):
     idx[-csiz:] = 0.75
     rewards = rewards * (4 * idx - 2) - agent.L * actives * log_probs
     agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
+    #agent.store_grad(rewards[:-csiz], log_probs[:-csiz])
 
     return rewards[-csiz:].mean().detach().cpu()
 
 if __name__ == "__main__":
     args = get_args()
+
+    assert not (args.sample_type == "pi^t" and args.init_type == "pi^0"), "This will invalidate the first phase training!"
 
     if args.load_path is not None:
         args.config = os.path.join(os.path.dirname(args.load_path), "../config.ini")
@@ -149,6 +153,7 @@ if __name__ == "__main__":
         elif args.problem == "OLKnapsack":
             env = OLKnapsackEnv(args.device, **config)
             agent = OLKnapsackAgent(args.device, **config)
+            #agent = OLKnapsackNNAgent(args.device, **config)
         
         envs = []
         for n in range(n_end, n_start - step, -step):
@@ -199,6 +204,9 @@ if __name__ == "__main__":
                         sampler = agent
                     else:
                         sampler = copy.deepcopy(agent)
+                
+                if episode > 0 and args.init_type == "pi^0":
+                    agent.clear_params()
 
                 if args.problem == "CSP":
                     pi_star = env.get_opt_policy()
