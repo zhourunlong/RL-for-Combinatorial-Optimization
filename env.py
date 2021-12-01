@@ -179,7 +179,7 @@ class OLKnapsackEnv(BaseEnv):
         del self.v, self.s, self.sum
     
     def bang_per_buck(self):
-        p = 0.10
+        p = 0.0
         k = int(p * self.n)
         sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
         rwd = torch.zeros_like(sum)
@@ -209,7 +209,5 @@ class OLKnapsackEnv(BaseEnv):
             valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
             sum += valid * self.s[:, i]
             rwd += valid * self.v[:, i]
-        
-        #print(self.B - sum)
         
         return rwd.mean(0)

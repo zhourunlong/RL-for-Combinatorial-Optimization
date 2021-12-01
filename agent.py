@@ -225,11 +225,11 @@ class OLKnapsackNNAgent():
     def __init__(self, device, lr, d0, L, W, width, depth, **kwargs):
         self.lr = float(lr)
         self.d0 = int(d0)
+        self.width = int(width)
         self.L = float(L)
         self.W = int(W)
         self.device = device
         
-        self.width = width
         self.clear_params()
 
         self.d = sum(p.numel() for p in self.model.parameters())

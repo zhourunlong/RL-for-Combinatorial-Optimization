@@ -54,16 +54,14 @@ def collect_data(env, sampler, agent):
 
         reward, active = env.get_reward(action)
 
-        #print(state[:5], action[:5], reward[:5])
-
         log_prob, grad_logp = agent.query_sa(state, action)
 
         rewards[:, -i] = reward
         log_probs[:, -i] = log_prob
 
     rewards = rewards.cumsum(1)
-    ret = rewards[-1].mean()
-    #rewards -= rewards.mean(0, keepdim=True)
+    ret = rewards[:, -1].mean()
+    rewards -= rewards.mean(0, keepdim=True)
     return ret, (rewards * log_probs).mean()
 
 if __name__ == "__main__":
