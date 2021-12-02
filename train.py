@@ -78,7 +78,6 @@ def collect_data(env, sampler, agent):
     idx[-csiz:] = 0.75
     rewards = rewards * (4 * idx - 2) - agent.L * actives * log_probs
     agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
-    #agent.store_grad(rewards[:-csiz], log_probs[:-csiz])
 
     return rewards[-csiz:].mean().detach().cpu()
 
@@ -153,7 +152,6 @@ if __name__ == "__main__":
         elif args.problem == "OLKnapsack":
             env = OLKnapsackEnv(args.device, **config)
             agent = OLKnapsackAgent(args.device, **config)
-            #agent = OLKnapsackNNAgent(args.device, **config)
         
         envs = []
         for n in range(n_end, n_start - step, -step):
