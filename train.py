@@ -37,8 +37,11 @@ def set_seed(seed):
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
 
-def unpack_config(batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end, step, **kwargs):
-    return int(batch_size), int(grad_cummu_step), int(phase_episode), int(save_episode), int(n_start), int(n_end), int(step)
+def unpack_config(batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end, **kwargs):
+    return int(batch_size), int(grad_cummu_step), int(phase_episode), int(save_episode), int(n_start), int(n_end)
+
+def unpack_config_olkn(B_start, B_end, **kwargs):
+    return float(B_start), float(B_end)
 
 def unpack_checkpoint(agent, envs, best, sampler, **kwargs):
     return agent, envs, best.cpu(), sampler
@@ -93,13 +96,15 @@ if __name__ == "__main__":
     parser.optionxform = lambda option: option
     parser.read(args.config, encoding='utf-8')
     config = dict(parser.items(args.problem))
-    batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end, step = unpack_config(**config)
+    batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end = unpack_config(**config)
+    if args.problem == "OLKnapsack":
+        B_start, B_end = unpack_config_olkn(**config)
+    else:
+        B_start, B_end = None, None
 
     assert save_episode % args.curve_buffer_size == 0
 
     set_seed(args.seed)
-
-    assert (n_end - n_start) % step == 0
 
     logdir = "Exp-{}-{}".format(time.strftime("%Y%m%d-%H%M%S"), args.problem)
     os.makedirs(logdir, exist_ok=True)
@@ -120,31 +125,17 @@ if __name__ == "__main__":
 
         for it in envs + [agent, sampler]:
             it.move_device(args.device)
-        
-        #env = envs[0]
-        #phi = agent.get_phi_all()
-        #idx = opt_tabular(env.probs.cpu().numpy())
-        #policy_star = torch.zeros((env.n, 2), dtype=torch.double, device=args.device)
-        #for i in idx:
-        #    policy_star[i - 1, 1] = 1
-
-        #kappa = calc_kappa(env.probs, policy_star, agent.get_policy(), phi)
-
-        #print(kappa)
-
-        #print(agent.theta, torch.norm(agent.theta))
-
-        #f = torch.arange(1, agent.n + 1, dtype=torch.double, device=args.device) / agent.n
-        #states_1 = torch.stack((f, torch.ones_like(f)), dim=1)
-        #states_0 = torch.stack((f, torch.zeros_like(f)), dim=1)
-        #logits_1 = agent.get_logits(states_1).view(-1,).cpu()
-        #logits_0 = agent.get_logits(states_0).view(-1,).cpu()
-
-        #print(logits_1, logits_0)
-
-        #plot_prob_fig(agent, env, "visualize.jpg", args.device)
-
         n_start = envs[0].n
+        if args.problem == "OLKnapsack":
+            B_start = envs[0].B
+        else:
+            B_start = None
+        
+        if n_end != n_start:
+            curriculum_params = [(n_end, B_end), (n_start, B_start)]
+        else:
+            curriculum_params = [(n_end, B_end)]
+        curriculum_params.reverse()
     else:
         if args.problem == "CSP":
             env = CSPEnv(args.device, **config)
@@ -154,15 +145,21 @@ if __name__ == "__main__":
             agent = OLKnapsackAgent(args.device, **config)
         
         envs = []
-        for n in range(n_end, n_start - step, -step):
-            env.set_n(n)
+
+        if n_end != n_start:
+            curriculum_params = [(n_end, B_end), (n_start, B_start)]
+        else:
+            curriculum_params = [(n_end, B_end)]
+        
+        for param in curriculum_params:
+            env.set_params(param)
             envs.append(copy.deepcopy(env))
+        curriculum_params.reverse()
         envs.reverse()
 
     envs.insert(0, None)
 
-    n = n_start - step
-    num_episode = ((n_end - n_start) // step + 1) * phase_episode
+    num_episode = (int(n_end != n_start) + 1) * phase_episode
 
     arr_size = num_episode // args.curve_buffer_size
     num_samples = np.zeros(arr_size, dtype=np.uint64)
@@ -179,7 +176,7 @@ if __name__ == "__main__":
     with tqdm(range(num_episode), desc="Training") as pbar:
         for episode in pbar:
             if episode % phase_episode == 0:
-                n += step
+                (n, B) = curriculum_params[episode // phase_episode]
                 agent.update_n(n)
                 envs.pop(0)
                 env = envs[0]

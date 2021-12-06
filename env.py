@@ -14,7 +14,7 @@ class BaseEnv(ABC):
         pass
     
     @abstractmethod
-    def set_n(self, n):
+    def set_params(self, params):
         pass
 
     @abstractmethod
@@ -52,8 +52,8 @@ class CSPEnv(BaseEnv):
         self.device = device
         self.probs.to(self.device)
     
-    def set_n(self, n):
-        self.n = n
+    def set_params(self, params):
+        self.n = params[0]
         if self.type == "uniform":
             self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device=self.device)
         else:
@@ -126,19 +126,19 @@ class CSPEnv(BaseEnv):
         
 
 class OLKnapsackEnv(BaseEnv):
-    def __init__(self, device, distr_type="random", distr_granularity=10, B=5, **kwargs):
+    def __init__(self, device, distr_type="random", distr_granularity=10, **kwargs):
         self.type = distr_type
         self.device = device
         self.gran = int(distr_granularity)
-        self.B = float(B)
     
     def move_device(self, device):
         self.device = device
         self.Fv.to(self.device)
         self.Fs.to(self.device)
     
-    def set_n(self, n):
-        self.n = n
+    def set_params(self, params):
+        self.r = None
+        self.n, self.B = params
         if self.type == "uniform":
             self.Fv = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
             self.Fs = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
@@ -179,35 +179,26 @@ class OLKnapsackEnv(BaseEnv):
         del self.v, self.s, self.sum
     
     def bang_per_buck(self):
-        p = 0.0
-        k = int(p * self.n)
-        sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
-        rwd = torch.zeros_like(sum)
-        bpb = self.v[:, :k] / self.s[:, :k]
+        def calc(r):
+            sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
+            rwd = torch.zeros_like(sum)
+            for i in range(self.n):
+                action = ((self.v[:, i] / self.s[:, i]) < r).double()
+                valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
+                sum += valid * self.s[:, i]
+                rwd += valid * self.v[:, i]
+            
+            return rwd.mean(0)
 
-        #for i in range(k):
-        #    valid = (sum + self.s[:, i]) <= self.B
-        #    sum += valid * self.s[:, i]
-        #    rwd += valid * self.v[:, i]
+        if self.r is None:
+            l, r = 0, 10
+            for _ in range(20):
+                m1, m2 = (2 * l + r) / 3, (l + 2 * r) / 3
+                c1, c2 = calc(m1), calc(m2)
+                if c1 > c2:
+                    r = m2
+                else:
+                    l = m1
+            self.r = l
 
-        ax = torch.arange(self.bs, dtype=torch.long, device=self.device)
-        bpb, idx = torch.sort(bpb, descending=True)
-        #print(ax, bpb, idx)
-        r = torch.ones_like(sum)
-        sr = torch.zeros_like(sum)
-        th = (self.B - sum) * p
-        for i in range(k):
-            r = torch.where(sr < th, bpb[:, i], r)
-            sr += self.s[ax, idx[:, i]]
-        
-        #print(r)
-
-        r = 1.2
-
-        for i in range(k, self.n):
-            action = ((self.v[:, i] / self.s[:, i]) < r).double()
-            valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
-            sum += valid * self.s[:, i]
-            rwd += valid * self.v[:, i]
-        
-        return rwd.mean(0)
+        return calc(self.r)
