@@ -170,6 +170,7 @@ if __name__ == "__main__":
     for phase in range(len(curriculum_params)):
         warmup = (phase < len(curriculum_params) - 1)
         prefix = "warmup" if warmup else "final"
+        sample_cnt = 0
         param = curriculum_params[phase]
         agent.set_curriculum_params(param)
         envs.pop(0)
@@ -206,7 +207,8 @@ if __name__ == "__main__":
             agent.update_param()
 
             buf_idx = episode % smooth_episode
-            buffers[0, buf_idx] = grad_cummu_step * env.cnt_samples
+            sample_cnt += grad_cummu_step * env.cnt_samples
+            buffers[0, buf_idx] = sample_cnt
             reward /= grad_cummu_step
             buffers[1, buf_idx] = reward
             buffers[2, buf_idx] = env.reference()
@@ -215,9 +217,10 @@ if __name__ == "__main__":
             save_buffers[:, episode % save_episode] = buffers[:, buf_idx]
 
             if (episode + 1) % smooth_episode == 0:
-                logger.log_stat("%s %s" % (prefix, labels[0]), buffers[0, -1], episode + 1)
+                logger.log_stat("%s %s" % (prefix, "episode"), episode + 1, sample_cnt)
                 for i in range(1, len(labels)):
-                    logger.log_stat("%s %s" % (prefix, labels[i]), buffers[i].mean(), episode + 1)
+                    logger.log_stat("%s %s" % (prefix, labels[i]), buffers[i].mean(), sample_cnt)
+                logger.print_recent_stats()
 
             if (episode + 1) % save_episode == 0:
                 env.clean()

@@ -9,22 +9,18 @@ class Logger:
         from tensorboard_logger import configure, log_value
         configure(directory_name)
         self.tb_logger = log_value
+        self.unprinted = defaultdict(float)
 
     def log_stat(self, key, value, t):
         self.stats[key].append((t, value))
         self.tb_logger(key, value, t)
+        self.unprinted[key] = value
 
     def print_recent_stats(self):
-        log_str = "Recent Stats | t_env: {:>10} | Episode: {:>8}\n".format(*self.stats["episode"][-1])
-        i = 0
-        for (k, v) in sorted(self.stats.items()):
-            if k == "episode":
-                continue
-            i += 1
-            window = 5 if k != "epsilon" else 1
-            item = "{:.4f}".format(np.mean([x[1] for x in self.stats[k][-window:]]))
-            log_str += "{:<25}{:>8}".format(k + ":", item)
-            log_str += "\n" if i % 4 == 0 else "\t"
+        log_str = ""
+        for (k, v) in self.unprinted.items():
+            log_str += "%s: %.4f" % (k, v)
+        self.unprinted.clear()
         self.console_logger.info(log_str)
 
 

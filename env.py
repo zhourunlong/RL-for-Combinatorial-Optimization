@@ -136,7 +136,7 @@ class CSPEnv(BaseEnv):
         del self.v, self.argmax, self.active
 
     def reference(self):
-        pass
+        return 0
         
 
 class OLKnapsackEnv(BaseEnv):
