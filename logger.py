@@ -22,6 +22,9 @@ class Logger:
             log_str += "\t%s: %.4f" % (k, v)
         self.unprinted.clear()
         self.console_logger.info(log_str)
+    
+    def info(self, log_str):
+        self.console_logger.info(log_str)
 
 
 
@@ -32,6 +35,6 @@ def get_logger():
     formatter = logging.Formatter('[%(levelname)s %(asctime)s] %(name)s %(message)s', '%H:%M:%S')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
-    logger.setLevel('DEBUG')
+    logger.setLevel('INFO')
 
     return logger

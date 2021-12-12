@@ -66,6 +66,7 @@ class CSPEnv(BaseEnv):
         [self.n] = param
         self.horizon = self.n
         self.bs = self.bs_per_horizon * (self.horizon + 1)
+        self.pi_star = None
         if self.type == "uniform":
             self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device=self.device)
         else:
@@ -96,6 +97,9 @@ class CSPEnv(BaseEnv):
         return ret, ract
 
     def get_opt_policy(self):
+        if self.pi_star is not None:
+            return self.pi_star
+
         n = self.n
         probs = self.probs.cpu()
 
@@ -130,13 +134,25 @@ class CSPEnv(BaseEnv):
             if V[i][1] == Q[i][1][0]:
                 pi_star[i - 1, 1] = 1
 
+        self.pi_star = pi_star
         return pi_star
 
     def clean(self):
         del self.v, self.argmax, self.active
 
     def reference(self):
-        return 0
+        pi_star = self.get_opt_policy()
+        axis = torch.arange(0, self.horizon, dtype=torch.long, device=self.device)
+        probs = pi_star[axis, self.v[:, axis].long()].unsqueeze(-1)
+        probs = torch.cat([probs, 1 - probs], dim=-1)
+        action = probs.view(-1, 2).multinomial(1).view(self.bs, self.horizon)
+        active = torch.cat((torch.ones((self.bs, 1), dtype=torch.double, device=self.device), action[:, :-1].cumprod(-1)), -1)
+        eq = torch.zeros_like(action)
+        baxis = torch.arange(0, self.bs, dtype=torch.long, device=self.device)
+        eq[baxis, self.argmax] = 1
+        rewards = active * (1 - action) * (eq * self.rwd_succ + (1 - eq) * self.rwd_fail)
+        rewards[:, -1] += active[:, -1] * action[:, -1] * self.rwd_fail
+        return rewards.sum(1).mean()
         
 
 class OLKnapsackEnv(BaseEnv):
@@ -199,7 +215,7 @@ class OLKnapsackEnv(BaseEnv):
         def calc(r):
             sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
             rwd = torch.zeros_like(sum)
-            for i in range(self.n):
+            for i in range(self.horizon):
                 action = ((self.v[:, i] / self.s[:, i]) < r).double()
                 valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
                 sum += valid * self.s[:, i]

@@ -52,7 +52,7 @@ def collect_data(env, sampler, agent):
     log_probs, idx, actives = torch.zeros_like(rewards), torch.zeros_like(rewards), torch.zeros_like(rewards)
     grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
 
-    for i in range(env.n):
+    for i in range(env.horizon):
         il, ir = -(i + 2) * csiz, -(i + 1) * csiz
 
         state = env.get_state()
@@ -231,6 +231,8 @@ if __name__ == "__main__":
                 for i in range(len(labels)):
                     log_package["%s %s" % (prefix, labels[i])] = save_buffers[i]
                 torch.save(ckpt_package, os.path.join(logdir, "logdata/%s/%08d.pt" % (prefix, episode + 1)))
+
+                logger.info("Saving to %s" % logdir)
 
                 if problem == "CSP":
                     plot_prob_fig(agent, env, os.path.join(logdir, "result/%s/visualize%08d.jpg" % (prefix, episode + 1)), args.device)
