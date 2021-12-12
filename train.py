@@ -9,7 +9,7 @@ import torch
 import random
 import time
 import copy
-from math import sqrt
+from math import log
 from calculate_opt_policy import *
 from calculate_kappa import *
 import configparser
@@ -36,10 +36,10 @@ def unpack_config(sample_type, init_type, seed, grad_cummu_step, phase_episode, 
     return sample_type, init_type, int(seed), int(grad_cummu_step), int(phase_episode), int(save_episode), int(smooth_episode)
 
 def unpack_config_csp(n_start, n_end, **kwargs):
-    return [int(n_start)], [int(n_end)]
+    return [[int(n_start)], [int(n_end)]]
 
 def unpack_config_olkn(n_start, n_end, B_start, B_end, **kwargs):
-    return [int(n_start), float(B_start)], [int(n_end), float(B_end)]
+    return [[int(n_start), float(B_start)], [int(n_end), float(B_end)]]
 
 def unpack_checkpoint(agent, envs, sampler, **kwargs):
     return agent, envs, sampler
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     envs.insert(0, None)
 
     labels = ["#sample", "reward", "reference reward"]
-    if args.problem == "CSP":
+    if problem == "CSP":
         labels.append("log(Kappa)")
     buffers = np.zeros((len(labels), smooth_episode))
     save_buffers = np.zeros((len(labels), save_episode))
@@ -177,29 +177,29 @@ if __name__ == "__main__":
         env = envs[0]
 
         if args.load_path is None:
-            if args.sample_type == "pi^0":
+            if sample_type == "pi^0":
                 sampler = copy.deepcopy(agent)
-            elif args.sample_type == "pi^t":
+            elif sample_type == "pi^t":
                 sampler = agent
             else:
-                if episode > 0:
+                if phase > 0:
                     sampler = copy.deepcopy(agent)
                 else:
                     sampler = agent
-        elif episode > 0:
-            if args.sample_type == "pi^t":
+        elif phase > 0:
+            if sample_type == "pi^t":
                 sampler = agent
             else:
                 sampler = copy.deepcopy(agent)
         
-        if not warmup and args.init_type == "pi^0":
+        if not warmup and init_type == "pi^0":
             agent.clear_params()
 
-        if args.problem == "CSP":
+        if problem == "CSP":
             pi_star = env.get_opt_policy()
             phi = agent.get_phi_all()
 
-        for episode in phase_episode:
+        for episode in range(phase_episode):
             reward = 0
             agent.zero_grad()
             for gstep in range(grad_cummu_step):
@@ -212,8 +212,8 @@ if __name__ == "__main__":
             reward /= grad_cummu_step
             buffers[1, buf_idx] = reward
             buffers[2, buf_idx] = env.reference()
-            if args.problem == "CSP":
-                buffers[3, buf_idx] = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
+            if problem == "CSP":
+                buffers[3, buf_idx] = log(calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy())
             save_buffers[:, episode % save_episode] = buffers[:, buf_idx]
 
             if (episode + 1) % smooth_episode == 0:
@@ -232,5 +232,5 @@ if __name__ == "__main__":
                     log_package["%s %s" % (prefix, labels[i])] = save_buffers[i]
                 torch.save(ckpt_package, os.path.join(logdir, "logdata/%s/%08d.pt" % (prefix, episode + 1)))
 
-                if args.problem == "CSP":
+                if problem == "CSP":
                     plot_prob_fig(agent, env, os.path.join(logdir, "result/%s/visualize%08d.jpg" % (prefix, episode + 1)), args.device)

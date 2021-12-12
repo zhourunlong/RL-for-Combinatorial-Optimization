@@ -19,7 +19,7 @@ class Logger:
     def print_recent_stats(self):
         log_str = ""
         for (k, v) in self.unprinted.items():
-            log_str += "%s: %.4f" % (k, v)
+            log_str += "\t%s: %.4f" % (k, v)
         self.unprinted.clear()
         self.console_logger.info(log_str)
 
