@@ -14,11 +14,12 @@ class BaseEnv(ABC):
         pass
     
     @abstractmethod
-    def set_params(self, params):
+    def set_curriculum_params(self, param):
         pass
 
+    @property
     @abstractmethod
-    def set_bs(self, bs):
+    def curriculum_params(self):
         pass
 
     @abstractmethod
@@ -41,27 +42,38 @@ class BaseEnv(ABC):
     def clean(self):
         pass
 
+    @abstractmethod
+    def reference(self):
+        pass
+
+    @property
+    def cnt_samples(self):
+        return self.horizon * self.bs_per_horizon
+
 class CSPEnv(BaseEnv):
-    def __init__(self, device, distr_type="random", rwd_succ=1, rwd_fail=0, **kwargs):
+    def __init__(self, device, distr_type, rwd_succ, rwd_fail, batch_size, **kwargs):
         self.type = distr_type
         self.device = device
         self.rwd_succ = float(rwd_succ)
         self.rwd_fail = float(rwd_fail)
+        self.bs_per_horizon = int(batch_size)
     
     def move_device(self, device):
         self.device = device
         self.probs.to(self.device)
     
-    def set_params(self, params):
-        self.n = params[0]
+    def set_curriculum_params(self, param):
+        [self.n] = param
+        self.horizon = self.n
+        self.bs = self.bs_per_horizon * (self.horizon + 1)
         if self.type == "uniform":
             self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device=self.device)
         else:
             tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device=self.device)
             self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device=self.device), tmp.pow(0.25 + 2 * torch.rand(self.n - 1, dtype=torch.double, device=self.device))))
-
-    def set_bs(self, bs):
-        self.bs = bs
+        
+    def curriculum_params(self):
+        return [self.n]
 
     def new_instance(self):
         self.i = 0
@@ -123,31 +135,36 @@ class CSPEnv(BaseEnv):
     def clean(self):
         del self.v, self.argmax, self.active
 
+    def reference(self):
+        pass
         
 
 class OLKnapsackEnv(BaseEnv):
-    def __init__(self, device, distr_type="random", distr_granularity=10, **kwargs):
+    def __init__(self, device, distr_type, distr_granularity, batch_size, **kwargs):
         self.type = distr_type
         self.device = device
         self.gran = int(distr_granularity)
+        self.bs_per_horizon = int(batch_size)
     
     def move_device(self, device):
         self.device = device
         self.Fv.to(self.device)
         self.Fs.to(self.device)
     
-    def set_params(self, params):
+    def set_curriculum_params(self, param):
         self.r = None
-        self.n, self.B = params
+        [self.n, self.B] = param
+        self.horizon = self.n
+        self.bs = self.bs_per_horizon * (self.horizon + 1)
         if self.type == "uniform":
             self.Fv = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
             self.Fs = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
         else: # not yet implemented
             self.Fv = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
             self.Fs = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
-
-    def set_bs(self, bs):
-        self.bs = bs
+    
+    def curriculum_params(self):
+        return [self.n, self.B]
     
     def sample_distr(self, F):
         interval = torch.multinomial(F, self.bs * self.n, replacement=True)
@@ -178,7 +195,7 @@ class OLKnapsackEnv(BaseEnv):
     def clean(self):
         del self.v, self.s, self.sum
     
-    def bang_per_buck(self):
+    def reference(self):
         def calc(r):
             sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
             rwd = torch.zeros_like(sum)

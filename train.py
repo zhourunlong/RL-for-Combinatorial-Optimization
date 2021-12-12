@@ -3,7 +3,6 @@ from env import *
 from visualize import *
 import argparse
 import os, sys, logging, time
-from tqdm import tqdm
 import shutil
 import numpy as np
 import torch
@@ -14,16 +13,12 @@ from math import sqrt
 from calculate_opt_policy import *
 from calculate_kappa import *
 import configparser
+from logger import *
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--config", default="config.ini", type=str)
-    parser.add_argument("--problem", choices=["CSP", "OLKnapsack"], required=True)
-    parser.add_argument("--seed", default=2018011309, type=int)
-    parser.add_argument("--curve-buffer-size", default=100, type=int)
-    parser.add_argument("--sample-type", default="pi^t-pi^0", choices=["pi^0", "pi^t", "pi^t-pi^0"])
-    parser.add_argument("--init-type", default="pi^0-pi^t", choices=["pi^0", "pi^0-pi^t"])
     parser.add_argument("--load-path", default=None, type=str)
     return parser.parse_args()
 
@@ -37,14 +32,17 @@ def set_seed(seed):
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
 
-def unpack_config(batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end, **kwargs):
-    return int(batch_size), int(grad_cummu_step), int(phase_episode), int(save_episode), int(n_start), int(n_end)
+def unpack_config(sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode, **kwargs):
+    return sample_type, init_type, int(seed), int(grad_cummu_step), int(phase_episode), int(save_episode), int(smooth_episode)
 
-def unpack_config_olkn(B_start, B_end, **kwargs):
-    return float(B_start), float(B_end)
+def unpack_config_csp(n_start, n_end, **kwargs):
+    return [int(n_start)], [int(n_end)]
 
-def unpack_checkpoint(agent, envs, best, sampler, **kwargs):
-    return agent, envs, best.cpu(), sampler
+def unpack_config_olkn(n_start, n_end, B_start, B_end, **kwargs):
+    return [int(n_start), float(B_start)], [int(n_end), float(B_end)]
+
+def unpack_checkpoint(agent, envs, sampler, **kwargs):
+    return agent, envs, sampler
 
 def collect_data(env, sampler, agent):
     env.new_instance()
@@ -87,167 +85,149 @@ def collect_data(env, sampler, agent):
 if __name__ == "__main__":
     args = get_args()
 
-    assert not (args.sample_type == "pi^t" and args.init_type == "pi^0"), "This will invalidate the first phase training!"
-
     if args.load_path is not None:
         args.config = os.path.join(os.path.dirname(args.load_path), "../config.ini")
 
     parser = configparser.RawConfigParser()
     parser.optionxform = lambda option: option
     parser.read(args.config, encoding='utf-8')
-    config = dict(parser.items(args.problem))
-    batch_size, grad_cummu_step, phase_episode, save_episode, n_start, n_end = unpack_config(**config)
-    if args.problem == "OLKnapsack":
-        B_start, B_end = unpack_config_olkn(**config)
-    else:
-        B_start, B_end = None, None
+    problem = dict(parser.items("Problem"))["name"]
 
-    assert save_episode % args.curve_buffer_size == 0
+    assert problem in ["CSP", "OLKnapsack"]
 
-    set_seed(args.seed)
+    config = dict(parser.items(problem))
+    sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode = unpack_config(**config)
+    if problem == "CSP":
+        curriculum_params = unpack_config_csp(**config)
+    elif problem == "OLKnapsack":
+        curriculum_params = unpack_config_olkn(**config)
 
-    logdir = "Exp-{}-{}".format(time.strftime("%Y%m%d-%H%M%S"), args.problem)
+    assert phase_episode % save_episode == 0
+    assert save_episode % smooth_episode == 0
+    assert sample_type in ["pi^0", "pi^t", "pi^t-pi^0"]
+    assert init_type in ["pi^0", "pi^0-pi^t"]
+    assert not (sample_type == "pi^t" and init_type == "pi^0"), "This will invalidate the first phase training!"
+
+    set_seed(seed)
+
+    logdir = "Exp-%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), problem)
     os.makedirs(logdir, exist_ok=True)
-    os.makedirs(os.path.join(logdir, "checkpoint"), exist_ok=True)
     os.makedirs(os.path.join(logdir, "code"), exist_ok=True)
-    os.makedirs(os.path.join(logdir, "result"), exist_ok=True)
-    print("Experiment dir: {}".format(logdir))
+    for par in ["checkpoint", "logdata", "result"]:
+        for sub in ["", "/warmup", "/final"]:
+            os.makedirs(os.path.join(logdir, "%s%s" % (par, sub)), exist_ok=True)
+    print("Experiment dir: %s" % (logdir))
 
     dirs = os.listdir(".")
     for fn in dirs:
         if os.path.splitext(fn)[-1] == ".py":
             shutil.copy(fn, os.path.join(logdir, "code"))
     shutil.copy(args.config, os.path.join(logdir, "config.ini"))
+    
+    logger = Logger(logdir)
 
     if args.load_path is not None:
         package = torch.load(args.load_path, map_location=args.device)
-        agent, envs, best, sampler = unpack_checkpoint(**package)
+        agent, envs, sampler = unpack_checkpoint(**package)
 
         for it in envs + [agent, sampler]:
             it.move_device(args.device)
-        n_start = envs[0].n
-        if args.problem == "OLKnapsack":
-            B_start = envs[0].B
-        else:
-            B_start = None
         
-        if n_end != n_start:
-            curriculum_params = [(n_end, B_end), (n_start, B_start)]
+        env_curriculum_params = envs[0].curriculum_params
+        
+        if env_curriculum_params != curriculum_params[1]:
+            curriculum_params = [env_curriculum_params, curriculum_params[1]]
         else:
-            curriculum_params = [(n_end, B_end)]
-        curriculum_params.reverse()
+            curriculum_params = [curriculum_params[1]]
     else:
-        if args.problem == "CSP":
+        if problem == "CSP":
             env = CSPEnv(args.device, **config)
             agent = CSPAgent(args.device, **config)
-        elif args.problem == "OLKnapsack":
+        elif problem == "OLKnapsack":
             env = OLKnapsackEnv(args.device, **config)
             agent = OLKnapsackAgent(args.device, **config)
         
         envs = []
 
-        if n_end != n_start:
-            curriculum_params = [(n_end, B_end), (n_start, B_start)]
-        else:
-            curriculum_params = [(n_end, B_end)]
+        if curriculum_params[0] == curriculum_params[1]:
+            curriculum_params = [curriculum_params[0]]
         
+        curriculum_params.reverse() # ensure that final environments (curriculum or not curriculum) has the same random status with the specified seed
         for param in curriculum_params:
-            env.set_params(param)
+            env.set_curriculum_params(param)
             envs.append(copy.deepcopy(env))
         curriculum_params.reverse()
         envs.reverse()
 
     envs.insert(0, None)
 
-    num_episode = (int(n_end != n_start) + 1) * phase_episode
-
-    arr_size = num_episode // args.curve_buffer_size
-    num_samples = np.zeros(arr_size, dtype=np.uint64)
-    running_reward = np.zeros(arr_size)
-    additional_arr = np.zeros(arr_size)
-    cnt_samples, reward_buf, additional_buf = 0, 0, 0
+    labels = ["#sample", "reward", "reference reward"]
     if args.problem == "CSP":
-        additional_label, ad_lb_short = "log(Kappa)", "K"
-        newax = True
-    elif args.problem == "OLKnapsack":
-        additional_label, ad_lb_short = "Bang-per-Buck", "B"
-        newax = False
+        labels.append("log(Kappa)")
+    buffers = np.zeros((len(labels), smooth_episode))
+    save_buffers = np.zeros((len(labels), save_episode))
 
-    with tqdm(range(num_episode), desc="Training") as pbar:
-        for episode in pbar:
-            if episode % phase_episode == 0:
-                (n, B) = curriculum_params[episode // phase_episode]
-                agent.update_n(n)
-                envs.pop(0)
-                env = envs[0]
-                env.set_bs((n + 1) * batch_size) # one more batch for evaluation
+    for phase in range(len(curriculum_params)):
+        warmup = (phase < len(curriculum_params) - 1)
+        prefix = "warmup" if warmup else "final"
+        param = curriculum_params[phase]
+        agent.set_curriculum_params(param)
+        envs.pop(0)
+        env = envs[0]
 
-                if args.load_path is None:
-                    best = -1e9
-                    if args.sample_type == "pi^0":
-                        sampler = copy.deepcopy(agent)
-                    elif args.sample_type == "pi^t":
-                        sampler = agent
-                    else:
-                        if episode > 0:
-                            sampler = copy.deepcopy(agent)
-                        else:
-                            sampler = agent
-                elif episode > 0:
-                    best = -1e9
-                    if args.sample_type == "pi^t":
-                        sampler = agent
-                    else:
-                        sampler = copy.deepcopy(agent)
-                
-                if episode > 0 and args.init_type == "pi^0":
-                    agent.clear_params()
+        if args.load_path is None:
+            if args.sample_type == "pi^0":
+                sampler = copy.deepcopy(agent)
+            elif args.sample_type == "pi^t":
+                sampler = agent
+            else:
+                if episode > 0:
+                    sampler = copy.deepcopy(agent)
+                else:
+                    sampler = agent
+        elif episode > 0:
+            if args.sample_type == "pi^t":
+                sampler = agent
+            else:
+                sampler = copy.deepcopy(agent)
+        
+        if not warmup and args.init_type == "pi^0":
+            agent.clear_params()
 
-                if args.problem == "CSP":
-                    pi_star = env.get_opt_policy()
-                    phi = agent.get_phi_all()
-            
+        if args.problem == "CSP":
+            pi_star = env.get_opt_policy()
+            phi = agent.get_phi_all()
+
+        for episode in phase_episode:
             reward = 0
             agent.zero_grad()
             for gstep in range(grad_cummu_step):
                 reward += collect_data(env, sampler, agent)
             agent.update_param()
 
-            cnt_samples += n * grad_cummu_step * batch_size
+            buf_idx = episode % smooth_episode
+            buffers[0, buf_idx] = grad_cummu_step * env.cnt_samples
             reward /= grad_cummu_step
-            reward_buf += reward
-            if reward > best:
-                best = reward
-                if args.problem == "CSP":
-                    plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize_best.jpg"), args.device)
-
+            buffers[1, buf_idx] = reward
+            buffers[2, buf_idx] = env.reference()
             if args.problem == "CSP":
-                val = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
-            elif args.problem == "OLKnapsack":
-                val = env.bang_per_buck()
-            
-            additional_buf += val
+                buffers[3, buf_idx] = calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy()
+            save_buffers[:, episode % save_episode] = buffers[:, buf_idx]
 
-            if (episode + 1) % args.curve_buffer_size == 0:
-                idx = episode // args.curve_buffer_size
-                num_samples[idx] = cnt_samples
-                running_reward[idx] = reward_buf / args.curve_buffer_size
-                if args.problem == "CSP":
-                    additional_arr[idx] = np.log(additional_buf / args.curve_buffer_size)
-                else:
-                    additional_arr[idx] = additional_buf / args.curve_buffer_size
-                reward_buf, additional_buf = 0, 0
-        
-            pbar.set_description("Epi: %d, N: %d, R: %2.4f, %s: %2.4f" % (episode, n, reward, ad_lb_short, val))
+            if (episode + 1) % smooth_episode == 0:
+                logger.log_stat("%s %s" % (prefix, labels[0]), buffers[0, -1], episode + 1)
+                for i in range(1, len(labels)):
+                    logger.log_stat("%s %s" % (prefix, labels[i]), buffers[i].mean(), episode + 1)
 
             if (episode + 1) % save_episode == 0:
                 env.clean()
-                package = {"agent":agent, "envs":envs, "best": best, "sampler":sampler}
-                torch.save(package, os.path.join(logdir, "checkpoint/%08d.pt" % (episode)))
+                ckpt_package = {"episode": episode + 1, "agent":agent, "envs":envs, "sampler":sampler}
+                torch.save(ckpt_package, os.path.join(logdir, "checkpoint/%s/%08d.pt" % (prefix, episode + 1)))
+
+                log_package = {"episode": episode + 1}
+                for i in range(len(labels)):
+                    log_package["%s %s" % (prefix, labels[i])] = save_buffers[i]
+                torch.save(ckpt_package, os.path.join(logdir, "logdata/%s/%08d.pt" % (prefix, episode + 1)))
 
                 if args.problem == "CSP":
-                    plot_prob_fig(agent, env, os.path.join(logdir, "result/visualize%08d.jpg" % (episode)), args.device)
-                
-                len = (episode + 1) // args.curve_buffer_size
-                plot_rl_fig(np.arange(1, len + 1) * args.curve_buffer_size, "Episodes", running_reward[:len], "Reward", additional_arr[:len], additional_label, newax, os.path.join(logdir, "result/curve_episode.jpg"))
-                plot_rl_fig(num_samples[:len], "Samples", running_reward[:len], "Reward", additional_arr[:len], additional_label, newax, os.path.join(logdir, "result/curve_sample.jpg"))
+                    plot_prob_fig(agent, env, os.path.join(logdir, "result/%s/visualize%08d.jpg" % (prefix, episode + 1)), args.device)
