@@ -159,7 +159,7 @@ class OLKnapsackAgent(LogLinearAgent):
         self.theta.to(self.device)
 
     def set_curriculum_params(self, param):
-        pass
+        self.n = param[0]
     
     def clear_params(self):
         self.theta = torch.zeros_like(self.theta)

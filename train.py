@@ -47,7 +47,7 @@ def unpack_checkpoint(agent, envs, sampler, **kwargs):
 def collect_data(env, sampler, agent):
     env.new_instance()
 
-    csiz = env.bs // (env.n + 1)
+    csiz = env.bs_per_horizon
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
     log_probs, idx, actives = torch.zeros_like(rewards), torch.zeros_like(rewards), torch.zeros_like(rewards)
     grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)

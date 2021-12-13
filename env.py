@@ -221,7 +221,7 @@ class OLKnapsackEnv(BaseEnv):
                 sum += valid * self.s[:, i]
                 rwd += valid * self.v[:, i]
             
-            return rwd.mean()
+            return rwd.mean().detach().cpu()
 
         if self.r is None:
             l, r = 0, 10
@@ -234,4 +234,4 @@ class OLKnapsackEnv(BaseEnv):
                     l = m1
             self.r = l
 
-        return calc(self.r).detach().cpu()
+        return calc(self.r)
