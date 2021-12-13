@@ -152,7 +152,7 @@ class CSPEnv(BaseEnv):
         eq[baxis, self.argmax] = 1
         rewards = active * (1 - action) * (eq * self.rwd_succ + (1 - eq) * self.rwd_fail)
         rewards[:, -1] += active[:, -1] * action[:, -1] * self.rwd_fail
-        return rewards.sum(1).mean()
+        return rewards.sum(1).mean().detach().cpu()
         
 
 class OLKnapsackEnv(BaseEnv):
@@ -221,7 +221,7 @@ class OLKnapsackEnv(BaseEnv):
                 sum += valid * self.s[:, i]
                 rwd += valid * self.v[:, i]
             
-            return rwd.mean(0)
+            return rwd.mean()
 
         if self.r is None:
             l, r = 0, 10
@@ -234,4 +234,4 @@ class OLKnapsackEnv(BaseEnv):
                     l = m1
             self.r = l
 
-        return calc(self.r)
+        return calc(self.r).detach().cpu()
