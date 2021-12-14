@@ -72,7 +72,8 @@ class CSPEnv(BaseEnv):
         else:
             tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device=self.device)
             self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device=self.device), tmp.pow(0.25 + 2 * torch.rand(self.n - 1, dtype=torch.double, device=self.device))))
-        
+    
+    @property
     def curriculum_params(self):
         return [self.n]
 
@@ -179,6 +180,7 @@ class OLKnapsackEnv(BaseEnv):
             self.Fv = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
             self.Fs = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
     
+    @property
     def curriculum_params(self):
         return [self.n, self.B]
     

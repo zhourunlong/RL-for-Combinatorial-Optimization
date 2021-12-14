@@ -86,7 +86,7 @@ if __name__ == "__main__":
     args = get_args()
 
     if args.load_path is not None:
-        args.config = os.path.join(os.path.dirname(args.load_path), "../config.ini")
+        args.config = os.path.join(os.path.dirname(args.load_path), "../../config.ini")
 
     parser = configparser.RawConfigParser()
     parser.optionxform = lambda option: option

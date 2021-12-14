@@ -65,3 +65,4 @@ def plot_rl_fig(x, labelx, y1, label1, y2, label2, newax, pic_dir):
 
     plt.savefig(pic_dir)
     plt.close()
+
