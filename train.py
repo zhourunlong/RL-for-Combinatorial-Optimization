@@ -20,6 +20,7 @@ def get_args():
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--config", default="config.ini", type=str)
     parser.add_argument("--load-path", default=None, type=str)
+    parser.add_argument("--override-phase-episode", default=None, type=int)
     return parser.parse_args()
 
 def set_seed(seed):
@@ -43,6 +44,28 @@ def unpack_config_olkn(n_start, n_end, B_start, B_end, **kwargs):
 
 def unpack_checkpoint(agent, envs, sampler, **kwargs):
     return agent, envs, sampler
+
+def get_file_number(dir):
+    _, fn = os.path.split(dir)
+    num, _ = os.path.splitext(fn)
+    num = "x" + num
+    for i in range(len(num) - 1, -1, -1):
+        if not num[i].isdigit():
+            return int(num[i+1:])
+
+def copy_logs(fn, logger, smooth_episode):
+    print(fn)
+    log_package = torch.load(fn, map_location="cpu")
+    for key, val in log_package.items():
+        if "#sample" in key:
+            sample_cnts = val
+            break
+
+    for key, val in log_package.items():
+        if "episode" in key or "#sample" in key:
+            continue
+        for i in range(0, val.shape[0], smooth_episode):
+            logger.log_stat(key, val[i:i+smooth_episode].mean(), sample_cnts[i+smooth_episode-1])
 
 def collect_data(env, sampler, agent):
     env.new_instance()
@@ -86,7 +109,8 @@ if __name__ == "__main__":
     args = get_args()
 
     if args.load_path is not None:
-        args.config = os.path.join(os.path.dirname(args.load_path), "../../config.ini")
+        load_dir = os.path.join(os.path.dirname(args.load_path), "../../")
+        args.config = os.path.join(load_dir, "config.ini")
 
     parser = configparser.RawConfigParser()
     parser.optionxform = lambda option: option
@@ -110,36 +134,72 @@ if __name__ == "__main__":
 
     set_seed(seed)
 
-    logdir = "Exp-%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), problem)
-    os.makedirs(logdir, exist_ok=True)
-    os.makedirs(os.path.join(logdir, "code"), exist_ok=True)
+    log_dir = "Exp-%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), problem)
+    logger = Logger(log_dir)
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "code"), exist_ok=True)
     for par in ["checkpoint", "logdata", "result"]:
         for sub in ["", "/warmup", "/final"]:
-            os.makedirs(os.path.join(logdir, "%s%s" % (par, sub)), exist_ok=True)
-    print("Experiment dir: %s" % (logdir))
+            os.makedirs(os.path.join(log_dir, "%s%s" % (par, sub)), exist_ok=True)
+    logger.info("Experiment dir: %s" % (log_dir))
 
     dirs = os.listdir(".")
     for fn in dirs:
         if os.path.splitext(fn)[-1] == ".py":
-            shutil.copy(fn, os.path.join(logdir, "code"))
-    shutil.copy(args.config, os.path.join(logdir, "config.ini"))
-    
-    logger = Logger(logdir)
+            shutil.copy(fn, os.path.join(log_dir, "code"))
+    shutil.copy(args.config, os.path.join(log_dir, "config.ini"))
 
-    if args.load_path is not None:
+    if args.load_path is not None: # continue training
+        logger.info("Migrating from %s." % (load_dir))
+        is_final = "final" in args.load_path
+        num = get_file_number(args.load_path)
+        num = int(num)
+        if is_final:
+            limit = {"/warmup": 1e18, "/final": num}
+            logger.info("warmup: all \t final: <= %d" % (num))
+        else:
+            limit = {"/warmup": num, "/final": -1}
+            logger.info("warmup: <= %d \t final: none" % (num))
+        
+        # copy files
+        for par in ["checkpoint", "logdata", "result"]:
+            for sub in ["/warmup", "/final"]:
+                from_path = os.path.join(load_dir, "%s%s" % (par, sub))
+                to_path = os.path.join(log_dir, "%s%s" % (par, sub))
+                dir = os.listdir(from_path)
+                lim = limit[sub]
+                logger_output = "%s%s:" % (par, sub)
+                for file in dir:
+                    num = get_file_number(file)
+                    if num <= lim:
+                        logger_output += " " + file
+                        fn = os.path.join(from_path, file)
+                        shutil.copy(fn, to_path)
+                        if par == "logdata":
+                            copy_logs(fn, logger, smooth_episode)
+                logger.info(logger_output)
+        
         package = torch.load(args.load_path, map_location=args.device)
         agent, envs, sampler = unpack_checkpoint(**package)
+        st_episode_num = package["episode"]
+
+        logger.info("Done. Start training from episode %d." % (st_episode_num))
+        
+        if args.override_phase_episode is not None:
+            phase_episode = args.override_phase_episode
+            logger.info("Override phase episode to %d." % (phase_episode))
+            assert phase_episode % save_episode == 0
 
         for it in envs + [agent, sampler]:
             it.move_device(args.device)
         
         env_curriculum_params = envs[0].curriculum_params
         
-        if env_curriculum_params != curriculum_params[1]:
-            curriculum_params = [env_curriculum_params, curriculum_params[1]]
-        else:
+        if is_final:
             curriculum_params = [curriculum_params[1]]
-    else:
+        else:
+            curriculum_params = [env_curriculum_params, curriculum_params[1]]
+    else: # initialize a new training
         if problem == "CSP":
             env = CSPEnv(args.device, **config)
             agent = CSPAgent(args.device, **config)
@@ -158,6 +218,8 @@ if __name__ == "__main__":
             envs.append(copy.deepcopy(env))
         curriculum_params.reverse()
         envs.reverse()
+
+        st_episode_num = 0
 
     envs.insert(0, None)
 
@@ -199,7 +261,8 @@ if __name__ == "__main__":
             pi_star = env.get_opt_policy()
             phi = agent.get_phi_all()
 
-        for episode in range(phase_episode):
+        for episode in range(st_episode_num, st_episode_num + phase_episode):
+            st_episode_num = 0
             reward = 0
             agent.zero_grad()
             for gstep in range(grad_cummu_step):
@@ -217,7 +280,7 @@ if __name__ == "__main__":
             save_buffers[:, episode % save_episode] = buffers[:, buf_idx]
 
             if (episode + 1) % smooth_episode == 0:
-                logger.log_stat("%s %s" % (prefix, "episode"), episode + 1, sample_cnt)
+                #logger.log_stat("%s %s" % (prefix, "episode"), episode + 1, sample_cnt)
                 for i in range(1, len(labels)):
                     logger.log_stat("%s %s" % (prefix, labels[i]), buffers[i].mean(), sample_cnt)
                 logger.print_recent_stats()
@@ -225,14 +288,14 @@ if __name__ == "__main__":
             if (episode + 1) % save_episode == 0:
                 env.clean()
                 ckpt_package = {"episode": episode + 1, "agent":agent, "envs":envs, "sampler":sampler}
-                torch.save(ckpt_package, os.path.join(logdir, "checkpoint/%s/%08d.pt" % (prefix, episode + 1)))
+                torch.save(ckpt_package, os.path.join(log_dir, "checkpoint/%s/%08d.pt" % (prefix, episode + 1)))
 
-                log_package = {"episode": episode + 1}
+                log_package = {"%s episode": episode + 1}
                 for i in range(len(labels)):
                     log_package["%s %s" % (prefix, labels[i])] = save_buffers[i]
-                torch.save(ckpt_package, os.path.join(logdir, "logdata/%s/%08d.pt" % (prefix, episode + 1)))
+                torch.save(log_package, os.path.join(log_dir, "logdata/%s/%08d.pt" % (prefix, episode + 1)))
 
-                logger.info("Saving to %s" % logdir)
+                logger.info("Saving to %s" % log_dir)
 
                 if problem == "CSP":
-                    plot_prob_fig(agent, env, os.path.join(logdir, "result/%s/visualize%08d.jpg" % (prefix, episode + 1)), args.device)
+                    plot_prob_fig(agent, env, os.path.join(log_dir, "result/%s/%08d.jpg" % (prefix, episode + 1)), args.device)

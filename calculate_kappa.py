@@ -11,10 +11,9 @@ def calc_distr(probs, policy):
 
 def calc_sigma(probs, policy_d, policy_t, phi):
     d = calc_distr(probs, policy_d)
-    w = (1 - policy_t) ** 2 + policy_t ** 2
-    raw = phi.unsqueeze(-1) @ phi.unsqueeze(-2) # TODO
-    sigma = ((d * w).view(-1, 2, 1, 1) * raw).sum((0, 1))
-    return sigma
+    w = (1 - policy_t) * policy_t
+    phi = phi.view(-1, phi.shape[-1])
+    return phi.T @ torch.diag((d * w).view(-1)) @ phi
     
 def calc_kappa(probs, policy_star, policy_t, phi):
     sigma_star = calc_sigma(probs, policy_star, policy_t, phi)
