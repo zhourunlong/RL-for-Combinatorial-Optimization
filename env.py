@@ -170,15 +170,15 @@ class CSPEnv(BaseEnv):
     def calc_log_kappa(self, policy_t, phi):
         sigma_star = self.calc_sigma(self.probs, self.opt_policy, policy_t, phi)
         sigma_t = self.calc_sigma(self.probs, policy_t, policy_t, phi)
-        
+
         S, U = torch.symeig(sigma_t, eigenvectors=True)
 
-        non_neg = S >= 0
-        sqinv = 1 / S[non_neg].sqrt()
-        U = U[:, non_neg]
+        pos_eig = S > 0
+        sqinv = 1 / S[pos_eig].sqrt()
+        U = U[:, pos_eig]
         st = U @ torch.diag(sqinv) @ U.T
 
-        e = torch.symeig(st @ sigma_star @ st)[0]
+        e = torch.symeig(st @ sigma_star @ st.T)[0]
         return log(e[-1])
 
         
@@ -245,7 +245,7 @@ class OLKnapsackEnv(BaseEnv):
             sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
             rwd = torch.zeros_like(sum)
             for i in range(self.horizon):
-                action = ((self.v[:, i] / self.s[:, i]) < r).double()
+                action = (self.v[:, i] < r * self.s[:, i]).double()
                 valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
                 sum += valid * self.s[:, i]
                 rwd += valid * self.v[:, i]

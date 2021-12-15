@@ -276,7 +276,7 @@ if __name__ == "__main__":
             save_buffers[:, episode % save_episode] = buffers[:, buf_idx]
 
             if (episode + 1) % smooth_episode == 0:
-                #logger.log_stat("%s %s" % (prefix, "episode"), episode + 1, sample_cnt)
+                logger.log_stat("%s %s" % (prefix, "episode"), episode + 1, sample_cnt)
                 for i in range(1, len(labels)):
                     logger.log_stat("%s %s" % (prefix, labels[i]), buffers[i].mean(), sample_cnt)
                 logger.print_recent_stats()
@@ -286,7 +286,7 @@ if __name__ == "__main__":
                 ckpt_package = {"episode": episode + 1, "agent":agent, "envs":envs, "sampler":sampler}
                 torch.save(ckpt_package, os.path.join(log_dir, "checkpoint/%s/%08d.pt" % (prefix, episode + 1)))
 
-                log_package = {"%s episode": episode + 1}
+                log_package = {"%s episode" % (prefix): episode + 1}
                 for i in range(len(labels)):
                     log_package["%s %s" % (prefix, labels[i])] = save_buffers[i]
                 torch.save(log_package, os.path.join(log_dir, "logdata/%s/%08d.pt" % (prefix, episode + 1)))
