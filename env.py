@@ -178,7 +178,7 @@ class CSPEnv(BaseEnv):
         U = U[:, non_neg]
         st = U @ torch.diag(sqinv) @ U.T
 
-        e = torch.symeig(st @ sigma_star @ st)[0])
+        e = torch.symeig(st @ sigma_star @ st)[0]
         return log(e[-1])
 
         
