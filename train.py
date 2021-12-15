@@ -257,10 +257,6 @@ if __name__ == "__main__":
         if not warmup and init_type == "pi^0":
             agent.clear_params()
 
-        if problem == "CSP":
-            pi_star = env.get_opt_policy()
-            phi = agent.get_phi_all()
-
         for episode in range(st_episode_num, st_episode_num + phase_episode):
             st_episode_num = 0
             reward = 0
@@ -276,7 +272,7 @@ if __name__ == "__main__":
             buffers[1, buf_idx] = reward
             buffers[2, buf_idx] = env.reference()
             if problem == "CSP":
-                buffers[3, buf_idx] = log(calc_kappa(env.probs, pi_star, agent.get_policy(), phi).cpu().numpy())
+                buffers[3, buf_idx] = env.calc_log_kappa(agent.policy, agent.phi_all)
             save_buffers[:, episode % save_episode] = buffers[:, buf_idx]
 
             if (episode + 1) % smooth_episode == 0:

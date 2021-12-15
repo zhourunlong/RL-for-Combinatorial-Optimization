@@ -26,14 +26,6 @@ class LogLinearAgent(ABC):
     @abstractmethod
     def get_phi_batch(self, states):
         pass
-    
-    @abstractmethod
-    def get_phi_all(self):
-        pass
-    
-    @abstractmethod
-    def get_policy(self, **kwargs):
-        pass
 
     def get_logits(self, states):
         phi = self.get_phi_batch(states)
@@ -110,6 +102,7 @@ class CSPAgent(LogLinearAgent):
 
     def set_curriculum_params(self, param):
         self.n = param[0]
+        self._phi_all = None
 
     def clear_params(self):
         self.theta = torch.zeros_like(self.theta)
@@ -127,18 +120,23 @@ class CSPAgent(LogLinearAgent):
         phi = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1)
         return phi
     
-    def get_phi_all(self):
+    @property
+    def phi_all(self):
+        if self._phi_all is not None:
+            return self._phi_all
+        
         f = torch.arange(1, self.n + 1, dtype=torch.double, device=self.device) / self.n
         f = torch.stack((f, f), dim=1).view(-1,)
 
         x = torch.tensor([0, 1], dtype=torch.double, device=self.device)
         x = x.repeat(self.n, 1).view(-1,)
 
-        phi = self.get_phi_batch(torch.stack((f, x), dim=1))
-        return phi.view(self.n, 2, -1)
+        self._phi_all = self.get_phi_batch(torch.stack((f, x), dim=1)).view(self.n, 2, -1)
+        return self._phi_all
 
-    def get_policy(self):
-        phi = self.get_phi_all().view(2 * self.n, -1)
+    @property
+    def policy(self):
+        phi = self.phi_all.view(2 * self.n, -1)
         return torch.sigmoid(phi @ self.theta).view(self.n, 2)
 
 

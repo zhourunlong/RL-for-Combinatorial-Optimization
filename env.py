@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import torch
 import numpy as np
+from math import *
 from fractions import Fraction
 from decimal import Decimal
 
@@ -35,10 +36,6 @@ class BaseEnv(ABC):
         pass
 
     @abstractmethod
-    def get_opt_policy(self):
-        pass
-
-    @abstractmethod
     def clean(self):
         pass
 
@@ -66,7 +63,7 @@ class CSPEnv(BaseEnv):
         [self.n] = param
         self.horizon = self.n
         self.bs = self.bs_per_horizon * (self.horizon + 1)
-        self.pi_star = None
+        self._opt_policy = None
         if self.type == "uniform":
             self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device=self.device)
         else:
@@ -97,9 +94,10 @@ class CSPEnv(BaseEnv):
         self.active *= action
         return ret, ract
 
-    def get_opt_policy(self):
-        if self.pi_star is not None:
-            return self.pi_star
+    @property
+    def opt_policy(self):
+        if self._opt_policy is not None:
+            return self._opt_policy
 
         n = self.n
         probs = self.probs.cpu()
@@ -135,14 +133,14 @@ class CSPEnv(BaseEnv):
             if V[i][1] == Q[i][1][0]:
                 pi_star[i - 1, 1] = 1
 
-        self.pi_star = pi_star
-        return pi_star
+        self._opt_policy = pi_star
+        return self._opt_policy
 
     def clean(self):
         del self.v, self.argmax, self.active
 
     def reference(self):
-        pi_star = self.get_opt_policy()
+        pi_star = self.opt_policy
         axis = torch.arange(0, self.horizon, dtype=torch.long, device=self.device)
         probs = pi_star[axis, self.v[:, axis].long()].unsqueeze(-1)
         probs = torch.cat([probs, 1 - probs], dim=-1)
@@ -154,6 +152,35 @@ class CSPEnv(BaseEnv):
         rewards = active * (1 - action) * (eq * self.rwd_succ + (1 - eq) * self.rwd_fail)
         rewards[:, -1] += active[:, -1] * action[:, -1] * self.rwd_fail
         return rewards.sum(1).mean().detach().cpu()
+
+    def calc_distr(self, probs, policy):
+        pr_rej = probs * (1 - policy[:, 1]) + (1 - probs) * (1 - policy[:, 0])
+        df = pr_rej.cumprod(dim=0)
+        df = torch.cat((torch.ones((1,), dtype=torch.double, device=df.device), df[:-1]))
+        df1 = df * probs
+        dfx = torch.stack((df - df1, df1), dim=1)
+        return dfx
+
+    def calc_sigma(self, probs, policy_d, policy_t, phi):
+        d = self.calc_distr(probs, policy_d)
+        w = (1 - policy_t) * policy_t
+        phi = phi.view(-1, phi.shape[-1])
+        return phi.T @ torch.diag((d * w).view(-1)) @ phi
+        
+    def calc_log_kappa(self, policy_t, phi):
+        sigma_star = self.calc_sigma(self.probs, self.opt_policy, policy_t, phi)
+        sigma_t = self.calc_sigma(self.probs, policy_t, policy_t, phi)
+        
+        S, U = torch.symeig(sigma_t, eigenvectors=True)
+
+        non_neg = S >= 0
+        sqinv = 1 / S[non_neg].sqrt()
+        U = U[:, non_neg]
+        st = U @ torch.diag(sqinv) @ U.T
+
+        e = torch.symeig(st @ sigma_star @ st)[0])
+        return log(e[-1])
+
         
 
 class OLKnapsackEnv(BaseEnv):

@@ -30,7 +30,7 @@ def plot_prob_fig(agent, env, pic_dir, device):
     ax.plot(x, max_acc, label="P[Accept|PrefMax]")
     ax.plot(x, non_max_acc, label="P[Accept|NotPrefMax]")
 
-    pi_star = env.get_opt_policy()
+    pi_star = env.opt_policy
     ax.plot(np.arange(0, env.n + 1) / env.n, np.concatenate(([0], pi_star[:, 1].cpu().numpy())), label="Optimal")
 
     ax.set_title("Plot of Policy", fontsize=40)
