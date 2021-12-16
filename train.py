@@ -93,6 +93,8 @@ def copy_logs(fn, logger, smooth_episode):
             continue
         for i in range(0, save_episode, smooth_episode):
             logger.log_stat(key, val - save_episode + i + smooth_episode, int(sample_cnts[i+smooth_episode-1]))
+    
+    return int(sample_cnts[-1]) # returns the sample count
 
 def collect_data(env, sampler, agent):
     env.new_instance()
@@ -188,6 +190,7 @@ if __name__ == "__main__":
             limit = {"/warmup": num, "/final": -1}
             logger.info("warmup: <= %d \t final: none" % (num))
         
+        st_sample_cnt = 0
         # copy files
         for par in ["checkpoint", "logdata", "result"]:
             for sub in ["/warmup", "/final"]:
@@ -204,14 +207,15 @@ if __name__ == "__main__":
                         fn = os.path.join(from_path, file)
                         shutil.copy(fn, to_path)
                         if par == "logdata":
-                            copy_logs(fn, logger, smooth_episode)
+                            _ = copy_logs(fn, logger, smooth_episode)
+                            st_sample_cnt = max(st_sample_cnt, _)
                 logger.info(logger_output)
         
         package = torch.load(args.load_path, map_location=args.device)
         agent, envs, sampler = unpack_checkpoint(**package)
         st_episode_num = package["episode"]
 
-        logger.info("Done. Start training from episode %d." % (st_episode_num))
+        logger.info("Done. Start training from episode %d with %d samples." % (st_episode_num, st_sample_cnt))
         
         if args.override_phase_episode is not None:
             phase_episode = args.override_phase_episode
@@ -260,7 +264,8 @@ if __name__ == "__main__":
     for phase in range(len(curriculum_params)):
         warmup = (phase < len(curriculum_params) - 1)
         prefix = "warmup" if warmup else "final"
-        sample_cnt = 0
+        sample_cnt = st_sample_cnt
+        st_sample_cnt = 0
         param = curriculum_params[phase]
         agent.set_curriculum_params(param)
         envs.pop(0)
