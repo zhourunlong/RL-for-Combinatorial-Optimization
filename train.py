@@ -48,7 +48,9 @@ def simplify_path(path):
         else:
             new_list.append(item)
             
-    new_str = "/" + "/".join(new_list)
+    new_str = "/".join(new_list)
+    if path[-1] == "/":
+        new_str += "/"
     
     return new_str
 
@@ -73,7 +75,6 @@ def get_file_number(dir):
             return int(num[i+1:])
 
 def copy_logs(fn, logger, smooth_episode):
-    print(fn)
     log_package = torch.load(fn, map_location="cpu")
     for key, val in log_package.items():
         if "#sample" in key:
@@ -83,8 +84,15 @@ def copy_logs(fn, logger, smooth_episode):
     for key, val in log_package.items():
         if "episode" in key or "#sample" in key:
             continue
-        for i in range(0, val.shape[0], smooth_episode):
-            logger.log_stat(key, val[i:i+smooth_episode].mean(), sample_cnts[i+smooth_episode-1])
+        save_episode = val.shape[0]
+        for i in range(0, save_episode, smooth_episode):
+            logger.log_stat(key, val[i:i+smooth_episode].mean(), int(sample_cnts[i+smooth_episode-1]))
+    
+    for key, val in log_package.items():
+        if not "episode" in key:
+            continue
+        for i in range(0, save_episode, smooth_episode):
+            logger.log_stat(key, val - save_episode + i + smooth_episode, int(sample_cnts[i+smooth_episode-1]))
 
 def collect_data(env, sampler, agent):
     env.new_instance()
@@ -186,6 +194,7 @@ if __name__ == "__main__":
                 from_path = os.path.join(load_dir, "%s%s" % (par, sub))
                 to_path = os.path.join(log_dir, "%s%s" % (par, sub))
                 dir = os.listdir(from_path)
+                dir.sort()
                 lim = limit[sub]
                 logger_output = "%s%s:" % (par, sub)
                 for file in dir:
