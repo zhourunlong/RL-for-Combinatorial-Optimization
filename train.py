@@ -30,6 +30,28 @@ def set_seed(seed):
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
 
+def simplify_path(path):
+    s_list = path.split("/")
+    temp_str = " ".join(s_list)
+    s_list = temp_str.split()
+    
+    new_list = []
+    
+    for item in s_list:
+        if item == ".":
+            continue
+            
+        elif item == "..":
+            if new_list:
+                new_list.pop(-1)
+                
+        else:
+            new_list.append(item)
+            
+    new_str = "/" + "/".join(new_list)
+    
+    return new_str
+
 def unpack_config(sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode, **kwargs):
     return sample_type, init_type, int(seed), int(grad_cummu_step), int(phase_episode), int(save_episode), int(smooth_episode)
 
@@ -106,7 +128,7 @@ if __name__ == "__main__":
     args = get_args()
 
     if args.load_path is not None:
-        load_dir = os.path.join(os.path.dirname(args.load_path), "../../")
+        load_dir = simplify_path(os.path.join(os.path.dirname(args.load_path), "../../"))
         args.config = os.path.join(load_dir, "config.ini")
 
     parser = configparser.RawConfigParser()
