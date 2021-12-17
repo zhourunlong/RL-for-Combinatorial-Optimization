@@ -251,15 +251,15 @@ if __name__ == "__main__":
         curriculum_params.reverse()
         envs.reverse()
 
-        st_episode_num = 0
+        st_sample_cnt, st_episode_num = 0, 0
 
     envs.insert(0, None)
 
     labels = ["#sample", "reward", "reference reward"]
     if problem == "CSP":
         labels.append("log(Kappa)")
-    buffers = np.zeros((len(labels), smooth_episode))
-    save_buffers = np.zeros((len(labels), save_episode))
+    buffers = torch.zeros((len(labels), smooth_episode))
+    save_buffers = torch.zeros((len(labels), save_episode))
 
     for phase in range(len(curriculum_params)):
         warmup = (phase < len(curriculum_params) - 1)
