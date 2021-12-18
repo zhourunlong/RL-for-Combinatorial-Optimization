@@ -324,7 +324,6 @@ if __name__ == "__main__":
                     log_package["%s %s" % (prefix, labels[i])] = save_buffers[i]
                 torch.save(log_package, os.path.join(log_dir, "logdata/%s/%08d.pt" % (prefix, episode + 1)))
 
-                logger.info("Saving to %s" % log_dir)
+                env.plot_prob_figure(agent, os.path.join(log_dir, "result/%s/%08d.jpg" % (prefix, episode + 1)))
 
-                if problem == "CSP":
-                    plot_prob_fig(agent, env, os.path.join(log_dir, "result/%s/%08d.jpg" % (prefix, episode + 1)), args.device)
+                logger.info("Saving to %s" % log_dir)

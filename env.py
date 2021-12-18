@@ -4,6 +4,9 @@ import numpy as np
 from math import *
 from fractions import Fraction
 from decimal import Decimal
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 class BaseEnv(ABC):
     @abstractmethod
@@ -41,6 +44,10 @@ class BaseEnv(ABC):
 
     @abstractmethod
     def reference(self):
+        pass
+
+    @abstractmethod
+    def plot_prob_figure(self, agent, pic_dir):
         pass
 
     @property
@@ -181,6 +188,34 @@ class CSPEnv(BaseEnv):
         e = torch.symeig(st @ sigma_star @ st.T)[0]
         return log(e[-1])
 
+    def plot_prob_figure(self, agent, pic_dir):
+        n = 1000
+        f = torch.arange(0, n + 1, dtype=torch.double, device=self.device) / n
+        states = torch.stack((f, torch.ones_like(f)), dim=1)
+        max_acc = agent.get_accept_prob(states).cpu().numpy()
+        states = torch.stack((f, torch.zeros_like(f)), dim=1)
+        non_max_acc = agent.get_accept_prob(states).cpu().numpy()
+
+        fig, ax = plt.subplots(figsize=(20, 20))
+
+        plt.xticks(fontsize=30)
+        plt.yticks(fontsize=30)
+
+        x = np.arange(0, n + 1) / n
+        ax.plot(x, max_acc, label="P[Accept|PrefMax]")
+        ax.plot(x, non_max_acc, label="P[Accept|NotPrefMax]")
+
+        pi_star = self.opt_policy
+        ax.plot(np.arange(0, self.n + 1) / self.n, np.concatenate(([0], pi_star[:, 1].cpu().numpy())), label="Optimal")
+
+        ax.set_title("Plot of Policy", fontsize=40)
+        ax.set_xlabel("Time", fontsize=30)
+        ax.set_ylabel("Prob", fontsize=30)
+        ax.legend(loc="best", fontsize=30)
+
+        plt.savefig(pic_dir)
+        plt.close()
+
         
 
 class OLKnapsackEnv(BaseEnv):
@@ -264,3 +299,6 @@ class OLKnapsackEnv(BaseEnv):
             self.r = l
 
         return calc(self.r)
+    
+    def plot_prob_figure(self, agent, pic_dir):
+        pass
