@@ -276,7 +276,8 @@ class OLKnapsackEnv(BaseEnv):
         pass
     
     def clean(self):
-        del self.v, self.s, self.sum
+        del self.v, self.s, self.sum, self.plot_states
+        self.plot_states = None
     
     def reference(self):
         def calc(r):
