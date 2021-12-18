@@ -235,6 +235,7 @@ class OLKnapsackEnv(BaseEnv):
     
     def set_curriculum_params(self, param):
         self.r = None
+        self.plot_states = None
         [self.n, self.B] = param
         self.horizon = self.n
         self.bs = self.bs_per_horizon * (self.horizon + 1)
@@ -259,7 +260,6 @@ class OLKnapsackEnv(BaseEnv):
         self.v = self.sample_distr(self.Fv)
         self.s = self.sample_distr(self.Fs)
         self.sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
-        #self.active = torch.ones_like(self.sum)
 
     def get_state(self):
         return torch.stack((self.v[:, self.i], self.s[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum / self.B), dim=1)
@@ -303,38 +303,45 @@ class OLKnapsackEnv(BaseEnv):
 
         return calc(self.r)
     
+    def get_plot_states(self):
+        if self.plot_states is not None:
+            return self.plot_states
+        
+        x = torch.linspace(0.01, 1, 100, device=self.device)
+        f = torch.linspace(0.1, 0.9, 9, device=self.device)
+        r = torch.linspace(0.1, 0.9, 6, device=self.device)
+        v, s, f, r = torch.meshgrid(x, x, f, r)
+        self.plot_states = torch.stack((v.reshape(-1,), s.reshape(-1,), f.reshape(-1,), r.reshape(-1,)), dim=1)
+
+        return self.plot_states
+    
     def plot_prob_figure(self, agent, pic_dir):
         fig = plt.figure(figsize=(22, 25))
-        lz = 6
         color_map = "viridis"
+        
+        acc = agent.get_accept_prob(self.get_plot_states()).view(100, 100, 9, 6).cpu().numpy()
+        x = np.linspace(0.01, 1, 100)
 
         for t in range(9):
             ax = fig.add_subplot(3, 3, t + 1, projection='3d')
             ax.set_title("i/n = 0.%d" % (t + 1))
 
-            x = np.linspace(0.01, 1, 100)
-            X, Y = np.meshgrid(x, x)
-
-            levels = np.linspace(-1, 1, 40)
-
-            for i in range(lz):
-                z = i / lz
-                Z = (X ** (i / lz)) * np.cos(Y)
-                ax.contourf(X, Y, z + 0.02 / lz * Z, zdir='z', levels=100, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / lz))
+            for i in range(6):
+                z = i / 6
+                ax.contourf(x, x, z + 0.02 / 6 * acc[:, :, t, i], zdir='z', levels=100, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
 
             ax.set_xlim3d(0, 1)
             ax.set_xlabel("v")
             ax.set_ylim3d(0, 1)
             ax.set_ylabel("s")
-            ax.set_zlim3d(1 / lz - 0.01, 1.01)
+            ax.set_zlim3d(-0.01, 1.01 - 1 / 6)
             ax.set_zlabel("sum/B")
             ax.invert_zaxis()
             ax.view_init(-170, 60)
-            
 
         fig.subplots_adjust(wspace=0, hspace=0, right=0.9)
         position = fig.add_axes([0.92, 0.4, 0.015, 0.2])
         cb = fig.colorbar(cm.ScalarMappable(norm=matplotlib.colors.Normalize(0, 1), cmap=color_map), cax=position)
 
-        plt.savefig("test.jpg", bbox_inches="tight")
+        plt.savefig(pic_dir, bbox_inches="tight")
         plt.close()
