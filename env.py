@@ -322,6 +322,7 @@ class OLKnapsackEnv(BaseEnv):
         
         acc = agent.get_accept_prob(self.get_plot_states()).view(100, 100, 9, 6).cpu().numpy()
         x = np.linspace(0.01, 1, 100)
+        X, Y = np.meshgrid(x, x, indexing="ij")
 
         for t in range(9):
             ax = fig.add_subplot(3, 3, t + 1, projection='3d')
@@ -329,7 +330,7 @@ class OLKnapsackEnv(BaseEnv):
 
             for i in range(6):
                 z = i / 6
-                ax.contourf(x, x, z + 0.02 / 6 * acc[:, :, t, i], zdir='z', levels=100, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
+                ax.contourf(X, Y, z + 0.02 / 6 * acc[:, :, t, i], zdir='z', levels=100, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
 
             ax.set_xlim3d(0, 1)
             ax.set_xlabel("v")
