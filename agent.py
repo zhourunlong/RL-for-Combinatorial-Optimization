@@ -81,7 +81,7 @@ class LogLinearAgent(ABC):
         if norm > self.W:
             ngrads *= self.W / norm
 
-        self.theta += self.lr * self.n * ngrads
+        self.theta += self.lr * ngrads
 
 
 
