@@ -214,6 +214,7 @@ if __name__ == "__main__":
         package = torch.load(args.load_path, map_location=args.device)
         agent, envs, sampler = unpack_checkpoint(**package)
         st_episode_num = package["episode"]
+        not_reset = True
 
         logger.info("Done. Start training from episode %d with %d samples." % (st_episode_num, st_sample_cnt))
         
@@ -252,6 +253,7 @@ if __name__ == "__main__":
         envs.reverse()
 
         st_sample_cnt, st_episode_num = 0, 0
+        not_reset = False
 
     envs.insert(0, None)
 
@@ -287,8 +289,10 @@ if __name__ == "__main__":
             else:
                 sampler = copy.deepcopy(agent)
         
-        if not warmup and init_type == "pi^0":
+        if not warmup and init_type == "pi^0" and not not_reset:
             agent.clear_params()
+        
+        not_reset = False
 
         for episode in range(st_episode_num, st_episode_num + phase_episode):
             st_episode_num = 0
