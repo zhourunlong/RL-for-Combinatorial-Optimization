@@ -184,7 +184,7 @@ if __name__ == "__main__":
             shutil.copy(fn, os.path.join(log_dir, "code"))
     shutil.copy(args.config, os.path.join(log_dir, "config.ini"))
 
-    cur_phase_episode = 0
+    cur_phase_episode = phase_episode
 
     if args.load_path is not None: # continue training
         logger.info("Migrating from %s." % (load_dir))
