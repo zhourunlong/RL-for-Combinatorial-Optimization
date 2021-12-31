@@ -398,14 +398,14 @@ class OLKnapsackDecisionEnv(BaseEnv):
     def get_reward(self, action):
         pickable = (self.sum_s + self.s[:, self.i]) <= self.B
         valid = self.active * (1 - action) * pickable
-        die = self.active * (1 - action) * (1 - pickable.double())
+        #die = self.active * (1 - action) * (1 - pickable.double())
         self.sum_s += valid * self.s[:, self.i]
         self.sum_v += valid * self.v[:, self.i]
         win = self.sum_v >= self.V
         self.sum_v[win] = self.V
         rwd = self.active * win
         ract = self.active.clone()
-        self.active *= (1 - win.double()) * (1 - die.double())
+        self.active *= (1 - win.double()) #* (1 - die.double())
         self.i += 1
         return rwd, ract
     
