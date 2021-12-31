@@ -184,6 +184,8 @@ if __name__ == "__main__":
             shutil.copy(fn, os.path.join(log_dir, "code"))
     shutil.copy(args.config, os.path.join(log_dir, "config.ini"))
 
+    cur_phase_episode = 0
+
     if args.load_path is not None: # continue training
         logger.info("Migrating from %s." % (load_dir))
         is_final = "final" in args.load_path
@@ -225,9 +227,9 @@ if __name__ == "__main__":
         logger.info("Done. Start training from episode %d with %d samples." % (st_episode_num, st_sample_cnt))
         
         if args.override_phase_episode is not None:
-            phase_episode = args.override_phase_episode
-            logger.info("Override phase episode to %d." % (phase_episode))
-            assert phase_episode % save_episode == 0
+            cur_phase_episode = args.override_phase_episode
+            logger.info("Override phase episode to %d." % (cur_phase_episode))
+            assert cur_phase_episode % save_episode == 0
 
         for it in envs + [agent, sampler]:
             it.move_device(args.device)
@@ -300,11 +302,13 @@ if __name__ == "__main__":
         
         if not warmup and init_type == "pi^0" and not not_reset:
             agent.clear_params()
-        
         not_reset = False
 
-        for episode in range(st_episode_num, st_episode_num + phase_episode):
-            st_episode_num = 0
+        episode_range = range(st_episode_num, st_episode_num + cur_phase_episode)
+        st_episode_num = 0
+        cur_phase_episode = phase_episode
+
+        for episode in episode_range:
             reward = 0
             agent.zero_grad()
             for gstep in range(grad_cummu_step):
