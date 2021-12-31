@@ -63,6 +63,9 @@ def unpack_config_csp(n_start, n_end, **kwargs):
 def unpack_config_olkn(n_start, n_end, B_start, B_end, **kwargs):
     return [[int(n_start), float(B_start)], [int(n_end), float(B_end)]]
 
+def unpack_config_olknd(n_start, n_end, B_start, B_end, V_start, V_end, **kwargs):
+    return [[int(n_start), float(B_start), float(V_start)], [int(n_end), float(B_end), float(V_end)]]
+
 def unpack_checkpoint(agent, envs, sampler, **kwargs):
     return agent, envs, sampler
 
@@ -129,6 +132,7 @@ def collect_data(env, sampler, agent):
         rewards[-csiz:] += reward[-csiz:]
     
     idx[-csiz:] = 0.75
+    log_probs[log_probs < -agent.U] = -agent.U
     rewards = rewards * (4 * idx - 2) - agent.L * actives * log_probs
     agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
 
@@ -146,7 +150,7 @@ if __name__ == "__main__":
     parser.read(args.config, encoding='utf-8')
     problem = dict(parser.items("Problem"))["name"]
 
-    assert problem in ["CSP", "OLKnapsack"]
+    assert problem in ["CSP", "OLKnapsack", "OLKnapsackDecision"]
 
     config = dict(parser.items(problem))
     sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode = unpack_config(**config)
@@ -154,6 +158,8 @@ if __name__ == "__main__":
         curriculum_params = unpack_config_csp(**config)
     elif problem == "OLKnapsack":
         curriculum_params = unpack_config_olkn(**config)
+    elif problem == "OLKnapsackDecision":
+        curriculum_params = unpack_config_olknd(**config)
 
     assert phase_episode % save_episode == 0
     assert save_episode % smooth_episode == 0
@@ -239,6 +245,9 @@ if __name__ == "__main__":
         elif problem == "OLKnapsack":
             env = OLKnapsackEnv(args.device, **config)
             agent = OLKnapsackAgent(args.device, **config)
+        elif problem == "OLKnapsackDecision":
+            env = OLKnapsackDecisionEnv(args.device, **config)
+            agent = OLKnapsackDecisionAgent(args.device, **config)
         
         envs = []
 

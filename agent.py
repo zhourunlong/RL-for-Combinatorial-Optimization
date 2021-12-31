@@ -8,8 +8,13 @@ from torch import autograd
 
 class LogLinearAgent(ABC):
     @abstractmethod
-    def __init__(self, **kwargs):
-        pass
+    def __init__(self, device, lr, L, G, U):
+        self.lr = float(lr)
+        self.L = float(L)
+        self.G = float(G)
+        self.U = float(U)
+        self.device = device
+        self.theta = torch.zeros((self.d, 1), dtype=torch.double, device=self.device)
     
     @abstractmethod
     def move_device(self, device):
@@ -78,23 +83,18 @@ class LogLinearAgent(ABC):
         ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
 
         norm = torch.norm(ngrads)
-        if norm > self.W:
-            ngrads *= self.W / norm
+        if norm > self.G:
+            ngrads *= self.G / norm
 
         self.theta += self.lr * ngrads
 
 
 
 class CSPAgent(LogLinearAgent):
-    def __init__(self, device, lr, d0, L, W, **kwargs):
-        self.lr = float(lr)
+    def __init__(self, device, d0, lr, L, G, U, **kwargs):
         self.d0 = int(d0)
         self.d = self.d0 * 2
-        self.L = float(L)
-        self.W = int(W)
-        self.device = device
-
-        self.theta = torch.zeros((self.d, 1), dtype=torch.double, device=self.device)
+        super().__init__(device, lr, L, G, U)
     
     def move_device(self, device):
         self.device = device
@@ -142,15 +142,10 @@ class CSPAgent(LogLinearAgent):
 
 
 class OLKnapsackAgent(LogLinearAgent):
-    def __init__(self, device, lr, d0, L, W, **kwargs):
-        self.lr = float(lr)
+    def __init__(self, device, d0, lr, L, G, U, **kwargs):
         self.d0 = int(d0)
         self.d = self.d0 ** 4
-        self.L = float(L)
-        self.W = int(W)
-        self.device = device
-
-        self.theta = torch.zeros((self.d, 1), dtype=torch.double, device=self.device)
+        super().__init__(device, lr, L, G, U)
     
     def move_device(self, device):
         self.device = device
@@ -183,13 +178,51 @@ class OLKnapsackAgent(LogLinearAgent):
 
 
 
+class OLKnapsackDecisionAgent(LogLinearAgent):
+    def __init__(self, device, d0, lr, L, G, U, **kwargs):
+        self.d0 = int(d0)
+        self.d = self.d0 ** 5
+        super().__init__(device, lr, L, G, U)
+    
+    def move_device(self, device):
+        self.device = device
+        self.theta.to(self.device)
+
+    def set_curriculum_params(self, param):
+        self.n = param[0]
+    
+    def clear_params(self):
+        self.theta = torch.zeros_like(self.theta)
+
+    def get_phi_batch(self, states):
+        bs = states.shape[0]
+
+        ax = torch.zeros((bs, 5, self.d0), dtype=torch.double, device=self.device)
+        ax[:, :, 0] = 1
+        for i in range(1, self.d0):
+            ax[:, :, i] = ax[:, :, i - 1] * states
+
+        t1 = torch.bmm(ax[:, 0, :].unsqueeze(2), ax[:, 1, :].unsqueeze(1)).view(bs, -1, 1)
+        t1 = torch.bmm(t1, ax[:, 2, :].unsqueeze(1)).view(bs, -1, 1)
+        t2 = torch.bmm(ax[:, 3, :].unsqueeze(2), ax[:, 4, :].unsqueeze(1)).view(bs, 1, -1)
+        phi = torch.bmm(t1, t2).view(bs, -1)
+        return phi
+    
+    def get_phi_all(self):
+        pass
+    
+    def get_policy(self):
+        pass
+
+
+
 class OLKnapsackNNAgent():
-    def __init__(self, device, lr, d0, L, W, width, depth, **kwargs):
+    def __init__(self, device, lr, d0, L, G, width, depth, **kwargs):
         self.lr = float(lr)
         self.d0 = int(d0)
         self.width = int(width)
         self.L = float(L)
-        self.W = int(W)
+        self.G = float(G)
         self.device = device
         
         self.clear_params()
@@ -269,8 +302,8 @@ class OLKnapsackNNAgent():
         ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
         
         norm = torch.norm(ngrads)
-        if norm > self.W:
-            ngrads *= self.W / norm
+        if norm > self.G:
+            ngrads *= self.G / norm
 
         cnt = 0
         for p in self.model.parameters():
