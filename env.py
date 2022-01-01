@@ -320,7 +320,7 @@ class OLKnapsackEnv(BaseEnv):
         fig = plt.figure(figsize=(22, 25))
         color_map = "viridis"
         
-        acc = agent.get_accept_prob(self.get_plot_states()).view(100, 100, 9, 6).cpu().numpy()
+        acc = agent.get_accept_prob(self.get_plot_states()).view(50, 50, 9, 6).cpu().numpy()
         x = np.linspace(0.02, 1, 50)
         X, Y = np.meshgrid(x, x, indexing="ij")
 
@@ -330,7 +330,7 @@ class OLKnapsackEnv(BaseEnv):
 
             for i in range(6):
                 z = i / 6
-                ax.contourf(X, Y, z + 0.02 / 6 * acc[:, :, t, i], zdir='z', levels=100, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
+                ax.contourf(X, Y, z + 0.02 / 6 * acc[:, :, t, i], zdir='z', levels=50, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
 
             ax.set_xlim3d(0, 1)
             ax.set_xlabel("v")
@@ -457,7 +457,7 @@ class OLKnapsackDecisionEnv(BaseEnv):
         fig = plt.figure(figsize=(22, 25))
         color_map = "viridis"
         
-        acc = agent.get_accept_prob(self.get_plot_states()).view(100, 100, 9, 6).cpu().numpy()
+        acc = agent.get_accept_prob(self.get_plot_states()).view(50, 50, 9, 6, 1).cpu().numpy()
         x = np.linspace(0.02, 1, 50)
         X, Y = np.meshgrid(x, x, indexing="ij")
 
@@ -467,7 +467,7 @@ class OLKnapsackDecisionEnv(BaseEnv):
 
             for i in range(6):
                 z = i / 6
-                ax.contourf(X, Y, z + 0.02 / 6 * acc[:, :, t, i], zdir='z', levels=100, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
+                ax.contourf(X, Y, z + 0.02 / 6 * acc[:, :, t, i, 0], zdir='z', levels=50, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
 
             ax.set_xlim3d(0, 1)
             ax.set_xlabel("v")
