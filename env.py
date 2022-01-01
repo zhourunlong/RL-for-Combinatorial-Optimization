@@ -308,7 +308,7 @@ class OLKnapsackEnv(BaseEnv):
         if self.plot_states is not None:
             return self.plot_states
         
-        x = torch.linspace(0.01, 1, 100, device=self.device)
+        x = torch.linspace(0.02, 1, 50, device=self.device)
         f = torch.linspace(0.1, 0.9, 9, device=self.device)
         r = torch.linspace(0.1, 0.9, 6, device=self.device)
         v, s, f, r = torch.meshgrid(x, x, f, r)
@@ -321,7 +321,7 @@ class OLKnapsackEnv(BaseEnv):
         color_map = "viridis"
         
         acc = agent.get_accept_prob(self.get_plot_states()).view(100, 100, 9, 6).cpu().numpy()
-        x = np.linspace(0.01, 1, 100)
+        x = np.linspace(0.02, 1, 50)
         X, Y = np.meshgrid(x, x, indexing="ij")
 
         for t in range(9):
@@ -445,7 +445,7 @@ class OLKnapsackDecisionEnv(BaseEnv):
         if self.plot_states is not None:
             return self.plot_states
         
-        x = torch.linspace(0.01, 1, 100, device=self.device)
+        x = torch.linspace(0.02, 1, 50, device=self.device)
         f = torch.linspace(0.1, 0.9, 9, device=self.device)
         r = torch.linspace(0.1, 0.9, 6, device=self.device)
         v, s, f, r, q = torch.meshgrid(x, x, f, r, torch.zeros((1,), device=self.device))
@@ -458,7 +458,7 @@ class OLKnapsackDecisionEnv(BaseEnv):
         color_map = "viridis"
         
         acc = agent.get_accept_prob(self.get_plot_states()).view(100, 100, 9, 6).cpu().numpy()
-        x = np.linspace(0.01, 1, 100)
+        x = np.linspace(0.02, 1, 50)
         X, Y = np.meshgrid(x, x, indexing="ij")
 
         for t in range(9):
