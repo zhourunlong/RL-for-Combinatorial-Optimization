@@ -13,8 +13,10 @@ from mpl_toolkits.mplot3d import Axes3D
 
 class BaseEnv(ABC):
     @abstractmethod
-    def __init__(self, **kwargs):
-        pass
+    def __init__(self, device, distr_type, batch_size):
+        self.type = distr_type
+        self.device = device
+        self.bs_per_horizon = int(batch_size)
     
     @abstractmethod
     def move_device(self, device):
@@ -27,6 +29,11 @@ class BaseEnv(ABC):
     @property
     @abstractmethod
     def curriculum_params(self):
+        pass
+
+    @property
+    @abstractmethod
+    def action_size(self):
         pass
 
     @abstractmethod
@@ -58,12 +65,8 @@ class BaseEnv(ABC):
         return self.horizon * self.bs_per_horizon
 
 class CSPEnv(BaseEnv):
-    def __init__(self, device, distr_type, rwd_succ, rwd_fail, batch_size, **kwargs):
-        self.type = distr_type
-        self.device = device
-        self.rwd_succ = float(rwd_succ)
-        self.rwd_fail = float(rwd_fail)
-        self.bs_per_horizon = int(batch_size)
+    def __init__(self, device, distr_type, batch_size, **kwargs):
+        super().__init__(device, distr_type, batch_size)
     
     def move_device(self, device):
         self.device = device
@@ -83,6 +86,10 @@ class CSPEnv(BaseEnv):
     @property
     def curriculum_params(self):
         return [self.n]
+    
+    @property
+    def action_size(self):
+        return 2
 
     def new_instance(self):
         self.i = 0
@@ -95,11 +102,10 @@ class CSPEnv(BaseEnv):
     
     def get_reward(self, action):
         eq = (self.argmax == self.i).double()
-        raw_reward = eq * self.rwd_succ + (1 - eq) * self.rwd_fail
         self.i += 1
         if self.i == self.n:
-            return self.active * ((1 - action) * raw_reward + action * self.rwd_fail), self.active
-        ret = self.active * (1 - action) * raw_reward
+            return self.active * (1 - action) * eq, self.active
+        ret = self.active * (1 - action) * eq
         ract = self.active.clone()
         self.active *= action
         return ret, ract
@@ -129,10 +135,10 @@ class CSPEnv(BaseEnv):
         prob_max = Fraction(1)
         for i in range(n - 1, 0, -1):
             p_i = Fraction(Decimal.from_float(np.float(probs[i])))
-            prob_max *= 1 - p_i
+            prob_max *= Fraction(1 - p_i)
 
             Q[i][0][0] = Fraction(-1)
-            Q[i][0][1] = (1 - p_i) * V[i + 1][0] + Fraction(p_i) * V[i + 1][1]
+            Q[i][0][1] = Fraction(1 - p_i) * V[i + 1][0] + Fraction(p_i) * V[i + 1][1]
             
             Q[i][1][0] = 2 * prob_max - 1
             Q[i][1][1] = Q[i][0][1]
@@ -159,8 +165,7 @@ class CSPEnv(BaseEnv):
         eq = torch.zeros_like(action)
         baxis = torch.arange(0, self.bs, dtype=torch.long, device=self.device)
         eq[baxis, self.argmax] = 1
-        rewards = active * (1 - action) * (eq * self.rwd_succ + (1 - eq) * self.rwd_fail)
-        rewards[:, -1] += active[:, -1] * action[:, -1] * self.rwd_fail
+        rewards = active * (1 - action) * eq
         return rewards.sum(1).mean().detach().cpu()
 
     def calc_distr(self, probs, policy):
@@ -171,15 +176,18 @@ class CSPEnv(BaseEnv):
         dfx = torch.stack((df - df1, df1), dim=1)
         return dfx
 
-    def calc_sigma(self, probs, policy_d, policy_t, phi):
+    def calc_sigma(self, probs, policy_d, policy_t, phi, unif):
         d = self.calc_distr(probs, policy_d)
-        w = (1 - policy_t) * policy_t
+        if unif:
+            w = 0.5 * ((1 - policy_t) ** 2) + 0.5 * (policy_t ** 2)
+        else:
+            w = policy_d * ((1 - policy_t) ** 2) + (1 - policy_d) * (policy_t ** 2)
         phi = phi.view(-1, phi.shape[-1])
         return phi.T @ torch.diag((d * w).view(-1)) @ phi
         
     def calc_log_kappa(self, policy_t, phi):
-        sigma_star = self.calc_sigma(self.probs, self.opt_policy, policy_t, phi)
-        sigma_t = self.calc_sigma(self.probs, policy_t, policy_t, phi)
+        sigma_star = self.calc_sigma(self.probs, self.opt_policy, policy_t, phi, False)
+        sigma_t = self.calc_sigma(self.probs, policy_t, policy_t, phi, True)
 
         S, U = torch.symeig(sigma_t, eigenvectors=True)
 
@@ -223,10 +231,8 @@ class CSPEnv(BaseEnv):
 
 class OLKnapsackEnv(BaseEnv):
     def __init__(self, device, distr_type, distr_granularity, batch_size, **kwargs):
-        self.type = distr_type
-        self.device = device
+        super().__init__(device, distr_type, batch_size)
         self.gran = int(distr_granularity)
-        self.bs_per_horizon = int(batch_size)
     
     def move_device(self, device):
         self.device = device
@@ -249,6 +255,10 @@ class OLKnapsackEnv(BaseEnv):
     @property
     def curriculum_params(self):
         return [self.n, self.B]
+    
+    @property
+    def action_size(self):
+        return 2
     
     def sample_distr(self, F):
         interval = torch.multinomial(F, self.bs * self.n, replacement=True)
@@ -352,10 +362,8 @@ class OLKnapsackEnv(BaseEnv):
 
 class OLKnapsackDecisionEnv(BaseEnv):
     def __init__(self, device, distr_type, distr_granularity, batch_size, **kwargs):
-        self.type = distr_type
-        self.device = device
+        super().__init__(device, distr_type, batch_size)
         self.gran = int(distr_granularity)
-        self.bs_per_horizon = int(batch_size)
     
     def move_device(self, device):
         self.device = device
@@ -378,6 +386,10 @@ class OLKnapsackDecisionEnv(BaseEnv):
     @property
     def curriculum_params(self):
         return [self.n, self.B, self.V]
+    
+    @property
+    def action_size(self):
+        return 2
     
     def sample_distr(self, F):
         interval = torch.multinomial(F, self.bs * self.n, replacement=True)

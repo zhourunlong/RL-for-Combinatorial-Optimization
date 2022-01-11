@@ -78,13 +78,31 @@ class LogLinearAgent(ABC):
         self.grads += (As.unsqueeze(-1) * grads_logp).mean(0).unsqueeze(-1)
         self.F += (grads_logp.T @ grads_logp) / grads_logp.shape[0]
         self.cnt += 1
-        
-    def update_param(self):
-        ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
+    
+    def _project(self, x, r):
+        norm = torch.norm(x)
+        if norm > r:
+            x *= r / norm
+        return x
+    
+    def _quad_func(self, A, b, x):
+        return x.T @ A @ x - 2 * b.T @ x
 
+    def update_param(self):
+        # Simple Project Solver
+        ngrads = torch.lstsq(self.grads, self.F + 1e-6 * self.cnt * torch.eye(self.d, dtype=torch.double, device=self.device)).solution[:self.d]
+        ngrads = self._project(ngrads, self.G)
+
+        # PGD
+        '''
+        ngrads = torch.lstsq(self.grads, self.F).solution[:self.d]
         norm = torch.norm(ngrads)
         if norm > self.G:
-            ngrads *= self.G / norm
+            ngrads = self._project(ngrads, self.G)
+            for _ in range(10000):
+                ngrads -= 0.01 * (self.F @ ngrads - self.grads) / self.cnt
+                ngrads = self._project(ngrads, self.G)
+        '''
 
         self.theta += self.lr * ngrads
 

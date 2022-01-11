@@ -99,12 +99,12 @@ def copy_logs(fn, logger, smooth_episode):
     
     return int(sample_cnts[-1]) # returns the sample count
 
-def collect_data(env, sampler, agent):
+def collect_data(env, sampler, samp_a_unif, agent):
     env.new_instance()
 
     csiz = env.bs_per_horizon
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
-    log_probs, idx, actives = torch.zeros_like(rewards), torch.zeros_like(rewards), torch.zeros_like(rewards)
+    idx = torch.zeros_like(rewards)
     grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
 
     for i in range(env.horizon):
@@ -117,23 +117,26 @@ def collect_data(env, sampler, agent):
         a_agent, entropy = agent.get_action(s_agent)
 
         id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
+        unif = torch.randint_like(id, env.action_size)
         idx[il:ir] = id
-        ax = id * a_sampler[-csiz:] + (1 - id) * a_agent[:csiz]
+        if samp_a_unif:
+            ax = id * unif + (1 - id) * a_agent[:csiz]
+        else:
+            ax = id * a_sampler[-csiz:] + (1 - id) * a_agent[:csiz]
         
         action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
 
-        actives[il:ir] = active[il:ir]
-        log_probs[il:ir], grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
+        log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], unif)
+        log_prob[log_prob < -agent.U] = -agent.U
         grads_logp[il:ir] = grad_logp * active[il:ir].unsqueeze(-1)
         
-        rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (1 - id) * entropy[:csiz])
+        rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (id * (-log_prob[:csiz]) + (1 - id) * entropy[:csiz]))
         rewards[ir:-csiz] += reward[ir:-csiz] + agent.L * active[ir:-csiz] * entropy[csiz:-csiz]
         rewards[-csiz:] += reward[-csiz:]
     
     idx[-csiz:] = 0.75
-    log_probs[log_probs < -agent.U] = -agent.U
-    rewards = rewards * (4 * idx - 2) - agent.L * actives * log_probs
+    rewards = rewards * (4 * idx - 2)
     agent.store_grad(rewards[:-csiz], grads_logp[:-csiz])
 
     return rewards[-csiz:].mean().detach().cpu()
@@ -265,6 +268,19 @@ if __name__ == "__main__":
 
         st_sample_cnt, st_episode_num = 0, 0
         not_reset = False
+    
+    if len(curriculum_params) == 1 and (sample_type == "pi^t-pi^0" or init_type == "pi^0-pi^t"):
+        if args.load_path is None:
+            if sample_type == "pi^t-pi^0":
+                sample_type = "pi^t"
+            if init_type == "pi^0-pi^t":
+                init_type = "pi^0"
+        else:
+            if sample_type == "pi^t-pi^0":
+                sample_type = "pi^0"
+            if init_type == "pi^0-pi^t":
+                init_type = "pi^t"
+        logger.info("Only 1 phase training, but 2 phase designed for sample / init types: Override sample_type to %s, init_type to %s." % (sample_type, init_type))
 
     envs.insert(0, None)
 
@@ -276,6 +292,7 @@ if __name__ == "__main__":
 
     for phase in range(len(curriculum_params)):
         warmup = (phase < len(curriculum_params) - 1)
+        samp_a_unif = False if warmup else ()
         prefix = "warmup" if warmup else "final"
         sample_cnt = st_sample_cnt
         st_sample_cnt = 0
@@ -283,23 +300,20 @@ if __name__ == "__main__":
         agent.set_curriculum_params(param)
         envs.pop(0)
         env = envs[0]
-
-        if args.load_path is None:
-            if sample_type == "pi^0":
-                sampler = copy.deepcopy(agent)
-            elif sample_type == "pi^t":
-                sampler = agent
-            else:
-                if phase > 0:
-                    sampler = copy.deepcopy(agent)
-                else:
-                    sampler = agent
-        elif phase > 0:
-            if sample_type == "pi^t":
-                sampler = agent
-            else:
-                sampler = copy.deepcopy(agent)
         
+        if sample_type == "pi^t-pi^0":
+            _samp = "pi^t" if warmup else "pi^0"
+        else:
+            _samp = sample_type
+        
+        if _samp == "pi^0":
+            if args.load_path is None or phase > 0:
+                sampler = copy.deepcopy(agent)
+            samp_a_unif = True
+        else:
+            sampler = agent
+            samp_a_unif = False
+
         if not warmup and init_type == "pi^0" and not not_reset:
             agent.clear_params()
         not_reset = False
@@ -312,7 +326,7 @@ if __name__ == "__main__":
             reward = 0
             agent.zero_grad()
             for gstep in range(grad_cummu_step):
-                reward += collect_data(env, sampler, agent)
+                reward += collect_data(env, sampler, samp_a_unif, agent)
             agent.update_param()
 
             buf_idx = episode % smooth_episode
