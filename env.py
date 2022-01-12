@@ -43,6 +43,10 @@ class BaseEnv(ABC):
     @abstractmethod
     def get_state(self):
         pass
+
+    @abstractmethod
+    def get_reference_action(self):
+        pass
     
     @abstractmethod
     def get_reward(self, action):
@@ -50,10 +54,6 @@ class BaseEnv(ABC):
 
     @abstractmethod
     def clean(self):
-        pass
-
-    @abstractmethod
-    def reference(self):
         pass
 
     @abstractmethod
@@ -76,12 +76,12 @@ class CSPEnv(BaseEnv):
         [self.n] = param
         self.horizon = self.n
         self.bs = self.bs_per_horizon * (self.horizon + 1)
-        self._opt_policy = None
         if self.type == "uniform":
             self.probs = 1 / torch.arange(1, self.n + 1, dtype=torch.double, device=self.device)
         else:
             tmp = 1 / torch.arange(2, self.n + 1, dtype=torch.double, device=self.device)
             self.probs = torch.cat((torch.ones((1,), dtype=torch.double, device=self.device), tmp.pow(0.25 + 2 * torch.rand(self.n - 1, dtype=torch.double, device=self.device))))
+        self.calc_opt_policy()
     
     @property
     def curriculum_params(self):
@@ -100,6 +100,9 @@ class CSPEnv(BaseEnv):
     def get_state(self):
         return torch.stack((torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.v[:, self.i].double()), dim=1)
     
+    def get_reference_action(self):
+        return 1 - self.opt_policy[self.i, self.v[:, self.i]]
+        
     def get_reward(self, action):
         eq = (self.argmax == self.i).double()
         self.i += 1
@@ -110,11 +113,7 @@ class CSPEnv(BaseEnv):
         self.active *= action
         return ret, ract
 
-    @property
-    def opt_policy(self):
-        if self._opt_policy is not None:
-            return self._opt_policy
-
+    def calc_opt_policy(self):
         n = self.n
         probs = self.probs.cpu()
 
@@ -129,75 +128,30 @@ class CSPEnv(BaseEnv):
         Q[n][1][1] = Fraction(-1)
         V[n][1] = Fraction(1)
 
-        pi_star = torch.zeros((n, 2), dtype=torch.double, device=self.device)
+        pi_star = torch.zeros((n, 2))
         pi_star[n - 1, 1] = 1
 
         prob_max = Fraction(1)
         for i in range(n - 1, 0, -1):
             p_i = Fraction(Decimal.from_float(np.float(probs[i])))
-            prob_max *= Fraction(1 - p_i)
+            prob_max *= 1 - p_i
 
             Q[i][0][0] = Fraction(-1)
-            Q[i][0][1] = Fraction(1 - p_i) * V[i + 1][0] + Fraction(p_i) * V[i + 1][1]
+            Q[i][0][1] = (1 - p_i) * V[i + 1][0] + p_i * V[i + 1][1]
             
             Q[i][1][0] = 2 * prob_max - 1
             Q[i][1][1] = Q[i][0][1]
 
-            for j in range(2):
-                V[i][j] = max(Q[i][j][0], Q[i][j][1])
+            V[i][0] = max(Q[i][0][0], Q[i][0][1])
+            V[i][1] = max(Q[i][1][0], Q[i][1][1])
 
             if V[i][1] == Q[i][1][0]:
                 pi_star[i - 1, 1] = 1
 
-        self._opt_policy = pi_star
-        return self._opt_policy
+        self.opt_policy = pi_star.to(self.device)
 
     def clean(self):
         del self.v, self.argmax, self.active
-
-    def reference(self):
-        pi_star = self.opt_policy
-        axis = torch.arange(0, self.horizon, dtype=torch.long, device=self.device)
-        probs = pi_star[axis, self.v[:, axis].long()].unsqueeze(-1)
-        probs = torch.cat([probs, 1 - probs], dim=-1)
-        action = probs.view(-1, 2).multinomial(1).view(self.bs, self.horizon)
-        active = torch.cat((torch.ones((self.bs, 1), dtype=torch.double, device=self.device), action[:, :-1].cumprod(-1)), -1)
-        eq = torch.zeros_like(action)
-        baxis = torch.arange(0, self.bs, dtype=torch.long, device=self.device)
-        eq[baxis, self.argmax] = 1
-        rewards = active * (1 - action) * eq
-        return rewards.sum(1).mean().detach().cpu()
-
-    def calc_distr(self, probs, policy):
-        pr_rej = probs * (1 - policy[:, 1]) + (1 - probs) * (1 - policy[:, 0])
-        df = pr_rej.cumprod(dim=0)
-        df = torch.cat((torch.ones((1,), dtype=torch.double, device=df.device), df[:-1]))
-        df1 = df * probs
-        dfx = torch.stack((df - df1, df1), dim=1)
-        return dfx
-
-    def calc_sigma(self, probs, policy_d, policy_t, phi, unif):
-        d = self.calc_distr(probs, policy_d)
-        if unif:
-            w = 0.5 * ((1 - policy_t) ** 2) + 0.5 * (policy_t ** 2)
-        else:
-            w = policy_d * ((1 - policy_t) ** 2) + (1 - policy_d) * (policy_t ** 2)
-        phi = phi.view(-1, phi.shape[-1])
-        return phi.T @ torch.diag((d * w).view(-1)) @ phi
-        
-    def calc_log_kappa(self, policy_t, phi):
-        sigma_star = self.calc_sigma(self.probs, self.opt_policy, policy_t, phi, False)
-        sigma_t = self.calc_sigma(self.probs, policy_t, policy_t, phi, True)
-
-        S, U = torch.symeig(sigma_t, eigenvectors=True)
-
-        pos_eig = S > 0
-        sqinv = 1 / S[pos_eig].sqrt()
-        U = U[:, pos_eig]
-        st = U @ torch.diag(sqinv) @ U.T
-
-        e = torch.symeig(st @ sigma_star @ st.T)[0]
-        return log(e[-1])
 
     def plot_prob_figure(self, agent, pic_dir):
         n = 1000
@@ -227,137 +181,6 @@ class CSPEnv(BaseEnv):
         plt.savefig(pic_dir)
         plt.close()
 
-        
-
-class OLKnapsackEnv(BaseEnv):
-    def __init__(self, device, distr_type, distr_granularity, batch_size, **kwargs):
-        super().__init__(device, distr_type, batch_size)
-        self.gran = int(distr_granularity)
-    
-    def move_device(self, device):
-        self.device = device
-        self.Fv.to(self.device)
-        self.Fs.to(self.device)
-    
-    def set_curriculum_params(self, param):
-        self.r = None
-        self.plot_states = None
-        [self.n, self.B] = param
-        self.horizon = self.n
-        self.bs = self.bs_per_horizon * (self.horizon + 1)
-        if self.type == "uniform":
-            self.Fv = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
-            self.Fs = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
-        else:
-            self.Fv = torch.rand((self.gran,), dtype=torch.double, device=self.device) / self.gran
-            self.Fs = torch.rand((self.gran,), dtype=torch.double, device=self.device) / self.gran
-    
-    @property
-    def curriculum_params(self):
-        return [self.n, self.B]
-    
-    @property
-    def action_size(self):
-        return 2
-    
-    def sample_distr(self, F):
-        interval = torch.multinomial(F, self.bs * self.n, replacement=True)
-        sample = interval.double() + torch.rand(self.bs * self.n, dtype=torch.double, device=self.device)
-        return sample.view(self.bs, self.n) / self.gran
-
-    def new_instance(self):
-        self.i = 0
-        self.v = self.sample_distr(self.Fv)
-        self.s = self.sample_distr(self.Fs)
-        self.sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
-
-    def get_state(self):
-        return torch.stack((self.v[:, self.i], self.s[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum / self.B), dim=1)
-    
-    def get_reward(self, action):
-        valid = (1 - action) * ((self.sum + self.s[:, self.i]) <= self.B)
-        self.sum += valid * self.s[:, self.i]
-        rwd = valid * self.v[:, self.i]
-        act = torch.ones((self.bs,), dtype=torch.double, device=self.device)
-        self.i += 1
-        return rwd, act
-    
-    def get_opt_policy(self):
-        pass
-    
-    def clean(self):
-        del self.v, self.s, self.sum, self.plot_states
-        self.plot_states = None
-    
-    def reference(self):
-        def calc(r):
-            sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
-            rwd = torch.zeros_like(sum)
-            for i in range(self.horizon):
-                action = (self.v[:, i] < r * self.s[:, i]).double()
-                valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
-                sum += valid * self.s[:, i]
-                rwd += valid * self.v[:, i]
-            
-            return rwd.mean().detach().cpu()
-
-        if self.r is None:
-            l, r = 0, 10
-            for _ in range(20):
-                m1, m2 = (2 * l + r) / 3, (l + 2 * r) / 3
-                c1, c2 = calc(m1), calc(m2)
-                if c1 > c2:
-                    r = m2
-                else:
-                    l = m1
-            self.r = l
-
-        return calc(self.r)
-    
-    def get_plot_states(self):
-        if self.plot_states is not None:
-            return self.plot_states
-        
-        x = torch.linspace(0.02, 1, 50, device=self.device)
-        f = torch.linspace(0.1, 0.9, 9, device=self.device)
-        r = torch.linspace(0.1, 0.9, 6, device=self.device)
-        v, s, f, r = torch.meshgrid(x, x, f, r)
-        self.plot_states = torch.stack((v.reshape(-1,), s.reshape(-1,), f.reshape(-1,), r.reshape(-1,)), dim=1)
-
-        return self.plot_states
-    
-    def plot_prob_figure(self, agent, pic_dir):
-        fig = plt.figure(figsize=(22, 25))
-        color_map = "viridis"
-        
-        acc = agent.get_accept_prob(self.get_plot_states()).view(50, 50, 9, 6).cpu().numpy()
-        x = np.linspace(0.02, 1, 50)
-        X, Y = np.meshgrid(x, x, indexing="ij")
-
-        for t in range(9):
-            ax = fig.add_subplot(3, 3, t + 1, projection='3d')
-            ax.set_title("i/n = 0.%d" % (t + 1))
-
-            for i in range(6):
-                z = i / 6
-                ax.contourf(X, Y, z + 0.02 / 6 * acc[:, :, t, i], zdir='z', levels=50, cmap=color_map, norm=matplotlib.colors.Normalize(vmin=z, vmax=z + 0.02 / 6))
-
-            ax.set_xlim3d(0, 1)
-            ax.set_xlabel("v")
-            ax.set_ylim3d(0, 1)
-            ax.set_ylabel("s")
-            ax.set_zlim3d(-0.01, 1.01 - 1 / 6)
-            ax.set_zlabel("sum/B")
-            ax.invert_zaxis()
-            ax.view_init(-170, 60)
-
-        fig.subplots_adjust(wspace=0, hspace=0, right=0.9)
-        position = fig.add_axes([0.92, 0.4, 0.015, 0.2])
-        cb = fig.colorbar(cm.ScalarMappable(norm=matplotlib.colors.Normalize(0, 1), cmap=color_map), cax=position)
-
-        plt.savefig(pic_dir, bbox_inches="tight")
-        plt.close()
-
 
 
 class OLKnapsackDecisionEnv(BaseEnv):
@@ -371,7 +194,6 @@ class OLKnapsackDecisionEnv(BaseEnv):
         self.Fs.to(self.device)
     
     def set_curriculum_params(self, param):
-        self.r = None
         self.plot_states = None
         [self.n, self.B, self.V] = param
         self.horizon = self.n
@@ -382,6 +204,8 @@ class OLKnapsackDecisionEnv(BaseEnv):
         else:
             self.Fv = torch.rand((self.gran,), dtype=torch.double, device=self.device) / self.gran
             self.Fs = torch.rand((self.gran,), dtype=torch.double, device=self.device) / self.gran
+        self.new_instance()
+        self.calc_ref_r()
     
     @property
     def curriculum_params(self):
@@ -407,6 +231,9 @@ class OLKnapsackDecisionEnv(BaseEnv):
     def get_state(self):
         return torch.stack((self.v[:, self.i], self.s[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum_s / self.B, self.sum_v / self.V), dim=1)
     
+    def get_reference_action(self):
+        return (self.v[:, self.i] < self.r * self.s[:, self.i]).double()
+    
     def get_reward(self, action):
         pickable = (self.sum_s + self.s[:, self.i]) <= self.B
         valid = self.active * (1 - action) * pickable
@@ -421,14 +248,11 @@ class OLKnapsackDecisionEnv(BaseEnv):
         self.i += 1
         return rwd, ract
     
-    def get_opt_policy(self):
-        pass
-    
     def clean(self):
         del self.v, self.s, self.sum_s, self.sum_v, self.plot_states
         self.plot_states = None
     
-    def reference(self):
+    def calc_ref_r(self):
         def calc(r):
             sum = torch.zeros((self.bs,), dtype=torch.double, device=self.device)
             rwd = torch.zeros_like(sum)
@@ -438,20 +262,17 @@ class OLKnapsackDecisionEnv(BaseEnv):
                 sum += valid * self.s[:, i]
                 rwd += valid * self.v[:, i]
             
-            return rwd.mean().detach().cpu(), (rwd >= self.V).float().mean().detach().cpu()
+            return rwd.mean().item()
 
-        if self.r is None:
-            l, r = 0, 10
-            for _ in range(20):
-                m1, m2 = (2 * l + r) / 3, (l + 2 * r) / 3
-                c1, c2 = calc(m1)[0], calc(m2)[0]
-                if c1 > c2:
-                    r = m2
-                else:
-                    l = m1
-            self.r = l
-
-        return calc(self.r)[1]
+        l, r = 0, 10
+        for _ in range(20):
+            m1, m2 = (2 * l + r) / 3, (l + 2 * r) / 3
+            c1, c2 = calc(m1), calc(m2)
+            if c1 > c2:
+                r = m2
+            else:
+                l = m1
+        self.r = l
     
     def get_plot_states(self):
         if self.plot_states is not None:

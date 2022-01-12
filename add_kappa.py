@@ -23,35 +23,29 @@ def unpack_checkpoint(agent, envs, sampler, **kwargs):
 
 def calc_log_kappa(env, agent):
     env.new_instance()
-    grads_logp = torch.zeros((env.horizon, env.bs, agent.d), dtype=torch.double, device=env.device)
+    sigma_t = torch.zeros((agent.d, agent.d), dtype=torch.double, device=env.device)
     for i in range(env.horizon):
         state = env.get_state()
         action, entropy = agent.get_action(state)
         reward, active = env.get_reward(action)
-
+        
         unif = torch.randint_like(action, 2)
         log_prob, grad_logp = agent.query_sa(state, unif)
-        grads_logp[i] = grad_logp * active.unsqueeze(-1)
-
-    grads_logp = grads_logp.view(-1, agent.d)
-    sigma_t = (grads_logp.T @ grads_logp) / grads_logp.shape[0]
-    del grads_logp
+        grad_logp = grad_logp * active.unsqueeze(-1)
+        sigma_t += (grad_logp.T @ grad_logp) / grad_logp.shape[0]
     
     env.new_instance()
     env.reference()
     r = env.r
-    grads_logp = torch.zeros((env.horizon, env.bs, agent.d), dtype=torch.double, device=env.device)
+    sigma_star = torch.zeros((agent.d, agent.d), dtype=torch.double, device=env.device)
     for i in range(env.horizon):
         state = env.get_state()
         action = (state[:, 0] < r * state[:, 1]).double()
         reward, active = env.get_reward(action)
 
         log_prob, grad_logp = agent.query_sa(state, action)
-        grads_logp[i] = grad_logp * active.unsqueeze(-1)
-    
-    grads_logp = grads_logp.view(-1, agent.d)
-    sigma_star = (grads_logp.T @ grads_logp) / grads_logp.shape[0]
-    del grads_logp
+        grad_logp = grad_logp * active.unsqueeze(-1)
+        sigma_star += (grad_logp.T @ grad_logp) / grad_logp.shape[0]
 
     S, U = torch.symeig(sigma_t, eigenvectors=True)
 
