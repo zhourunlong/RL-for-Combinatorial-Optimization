@@ -57,10 +57,10 @@ def simplify_path(path):
 def unpack_config(sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode, **kwargs):
     return sample_type, init_type, int(seed), int(grad_cummu_step), int(phase_episode), int(save_episode), int(smooth_episode)
 
-def unpack_config_csp(n_start, n_end, **kwargs):
+def unpack_config_SP(n_start, n_end, **kwargs):
     return [[int(n_start)], [int(n_end)]]
 
-def unpack_config_olknd(n_start, n_end, B_start, B_end, V_start, V_end, **kwargs):
+def unpack_config_OKD(n_start, n_end, B_start, B_end, V_start, V_end, **kwargs):
     return [[int(n_start), float(B_start), float(V_start)], [int(n_end), float(B_end), float(V_end)]]
 
 def unpack_checkpoint(agent, envs, sampler, **kwargs):
@@ -188,9 +188,9 @@ if __name__ == "__main__":
     config = dict(parser.items(problem))
     sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode = unpack_config(**config)
     if problem == "CSP":
-        curriculum_params = unpack_config_csp(**config)
+        curriculum_params = unpack_config_SP(**config)
     elif problem == "OLKnapsackDecision":
-        curriculum_params = unpack_config_olknd(**config)
+        curriculum_params = unpack_config_OKD(**config)
 
     assert phase_episode % save_episode == 0
     assert save_episode % smooth_episode == 0
