@@ -196,8 +196,7 @@ if __name__ == "__main__":
     assert save_episode % smooth_episode == 0
     assert sample_type in ["pi^0", "pi^t", "pi^t-pi^0"]
     assert init_type in ["pi^0", "pi^0-pi^t"]
-    assert not (sample_type == "pi^t" and init_type == "pi^0"), "This will invalidate the first phase training!"
-
+    
     set_seed(seed)
 
     log_dir = "Exp-%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), problem)
@@ -294,6 +293,9 @@ if __name__ == "__main__":
         st_sample_cnt, st_episode_num = 0, 0
         not_reset = False
     
+    if len(curriculum_params) == 2:
+        assert not (sample_type == "pi^t" and init_type == "pi^0"), "This will invalidate the first phase training!"
+
     if len(curriculum_params) == 1 and (sample_type == "pi^t-pi^0" or init_type == "pi^0-pi^t"):
         if args.load_path is None:
             if sample_type == "pi^t-pi^0":
