@@ -101,7 +101,7 @@ class CSPEnv(BaseEnv):
         return torch.stack((torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.v[:, self.i].double()), dim=1)
     
     def get_reference_action(self):
-        return 1 - self.opt_policy[self.i, self.v[:, self.i]]
+        return 1 - self.opt_policy[self.i, self.v[:, self.i].long()]
         
     def get_reward(self, action):
         eq = (self.argmax == self.i).double()
