@@ -206,6 +206,7 @@ class OLKnapsackDecisionEnv(BaseEnv):
             self.Fs = torch.rand((self.gran,), dtype=torch.double, device=self.device) / self.gran
         self.new_instance()
         self.calc_ref_r()
+        self.clean()
     
     @property
     def curriculum_params(self):
