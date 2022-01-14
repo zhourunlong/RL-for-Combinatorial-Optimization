@@ -1,10 +1,6 @@
 from abc import ABC, abstractmethod
-import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
-from torch import autograd
 
 class LogLinearAgent(ABC):
     @abstractmethod
@@ -23,7 +19,7 @@ class LogLinearAgent(ABC):
     @abstractmethod
     def set_curriculum_params(self, param):
         pass
-
+    
     @abstractmethod
     def clear_params(self):
         pass
@@ -106,65 +102,4 @@ class LogLinearAgent(ABC):
 
         self.theta += self.lr * ngrads
 
-
-
-class CSPAgent(LogLinearAgent):
-    def __init__(self, device, d0, lr, L, G, U, **kwargs):
-        self.d0 = int(d0)
-        self.d = self.d0 * 2
-        super().__init__(device, lr, L, G, U)
-    
-    def move_device(self, device):
-        self.device = device
-        self.theta.to(self.device)
-
-    def set_curriculum_params(self, param):
-        self.n = param[0]
-
-    def clear_params(self):
-        self.theta = torch.zeros_like(self.theta)
-
-    def get_phi_batch(self, states):
-        bs = states.shape[0]
-
-        f_axis = torch.ones((bs, self.d0), dtype=torch.double, device=self.device)
-        i_axis = torch.cat((torch.ones((bs, 1), dtype=torch.double, device=self.device), states[:, 1].view(-1, 1)), dim=-1)
-        
-        fractions = states[:, 0]
-        for i in range(1, self.d0):
-            f_axis[:, i] = f_axis[:, i - 1] * fractions
-
-        phi = torch.bmm(f_axis.unsqueeze(2), i_axis.unsqueeze(1)).view(bs, -1)
-        return phi
-
-
-
-class OLKnapsackDecisionAgent(LogLinearAgent):
-    def __init__(self, device, d0, lr, L, G, U, **kwargs):
-        self.d0 = int(d0)
-        self.d = self.d0 ** 5
-        super().__init__(device, lr, L, G, U)
-    
-    def move_device(self, device):
-        self.device = device
-        self.theta.to(self.device)
-
-    def set_curriculum_params(self, param):
-        self.n = param[0]
-    
-    def clear_params(self):
-        self.theta = torch.zeros_like(self.theta)
-
-    def get_phi_batch(self, states):
-        bs = states.shape[0]
-
-        ax = torch.zeros((bs, 5, self.d0), dtype=torch.double, device=self.device)
-        ax[:, :, 0] = 1
-        for i in range(1, self.d0):
-            ax[:, :, i] = ax[:, :, i - 1] * states
-
-        t1 = torch.bmm(ax[:, 0, :].unsqueeze(2), ax[:, 1, :].unsqueeze(1)).view(bs, -1, 1)
-        t1 = torch.bmm(t1, ax[:, 2, :].unsqueeze(1)).view(bs, -1, 1)
-        t2 = torch.bmm(ax[:, 3, :].unsqueeze(2), ax[:, 4, :].unsqueeze(1)).view(bs, 1, -1)
-        phi = torch.bmm(t1, t2).view(bs, -1)
-        return phi
+        return ngrads

@@ -1,8 +1,5 @@
-from agent import *
-from env import *
-from visualize import *
 import argparse
-import os, sys, logging, time
+import os, sys, time
 import shutil
 import numpy as np
 import torch
@@ -10,7 +7,13 @@ import random
 import time
 import copy
 import configparser
-from logger import *
+from math import *
+from utils.logger import Logger
+from utils.file_ops import *
+from agents import REGISTRY as agents_REGISTRY
+from envs import REGISTRY as envs_REGISTRY
+
+unpack_config_REGISTRY = {}
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -30,71 +33,21 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-def simplify_path(path):
-    s_list = path.split("/")
-    temp_str = " ".join(s_list)
-    s_list = temp_str.split()
-    
-    new_list = []
-    
-    for item in s_list:
-        if item == ".":
-            continue
-            
-        elif item == "..":
-            if new_list:
-                new_list.pop(-1)
-                
-        else:
-            new_list.append(item)
-            
-    new_str = "/".join(new_list)
-    if path[-1] == "/":
-        new_str += "/"
-    
-    return new_str
-
-def unpack_config(sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode, **kwargs):
-    return sample_type, init_type, int(seed), int(grad_cummu_step), int(phase_episode), int(save_episode), int(smooth_episode)
+def unpack_config(sample_type, init_type, seed, phase_episode, save_episode, smooth_episode, **kwargs):
+    return sample_type, init_type, int(seed), int(phase_episode), int(save_episode), int(smooth_episode)
 
 def unpack_config_SP(n_start, n_end, **kwargs):
     return [[int(n_start)], [int(n_end)]]
 
+unpack_config_REGISTRY["SP"] = unpack_config_SP
+
 def unpack_config_OKD(n_start, n_end, B_start, B_end, V_start, V_end, **kwargs):
     return [[int(n_start), float(B_start), float(V_start)], [int(n_end), float(B_end), float(V_end)]]
 
+unpack_config_REGISTRY["OKD"] = unpack_config_OKD
+
 def unpack_checkpoint(agent, envs, sampler, **kwargs):
     return agent, envs, sampler
-
-def get_file_number(dir):
-    _, fn = os.path.split(dir)
-    num, _ = os.path.splitext(fn)
-    num = "x" + num
-    for i in range(len(num) - 1, -1, -1):
-        if not num[i].isdigit():
-            return int(num[i+1:])
-
-def copy_logs(fn, logger, smooth_episode):
-    log_package = torch.load(fn, map_location="cpu")
-    for key, val in log_package.items():
-        if "#sample" in key:
-            sample_cnts = val
-            break
-
-    for key, val in log_package.items():
-        if "episode" in key or "#sample" in key:
-            continue
-        save_episode = val.shape[0]
-        for i in range(0, save_episode, smooth_episode):
-            logger.log_stat(key, val[i:i+smooth_episode].mean(), int(sample_cnts[i+smooth_episode-1]))
-    
-    for key, val in log_package.items():
-        if not "episode" in key:
-            continue
-        for i in range(0, save_episode, smooth_episode):
-            logger.log_stat(key, val - save_episode + i + smooth_episode, int(sample_cnts[i+smooth_episode-1]))
-    
-    return int(sample_cnts[-1]) # returns the sample count
 
 def collect_data(env, sampler, samp_a_unif, agent):
     env.new_instance()
@@ -103,9 +56,10 @@ def collect_data(env, sampler, samp_a_unif, agent):
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
     idx = torch.zeros_like(rewards)
     grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
+    sigma_t = torch.zeros((agent.d, agent.d), dtype=torch.double, device=env.device)
 
     for i in range(env.horizon):
-        il, ir = (env.horizon - (i + 1)) * csiz, (env.horizon - i) * csiz
+        il, ir = -(i + 2) * csiz, -(i + 1) * csiz
 
         state = env.get_state()
         s_sampler, s_agent = state[:ir], state[il:]
@@ -114,7 +68,6 @@ def collect_data(env, sampler, samp_a_unif, agent):
         a_agent, entropy = agent.get_action(s_agent)
 
         id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
-        unif = torch.randint_like(id, env.action_size)
         idx[il:ir] = id
         if samp_a_unif:
             a_sampler[-csiz:] = torch.randint_like(id, env.action_size)
@@ -125,42 +78,58 @@ def collect_data(env, sampler, samp_a_unif, agent):
 
         log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
         log_prob[log_prob < -agent.U] = -agent.U
-        grads_logp[il:ir] = grad_logp * active[il:ir].unsqueeze(-1)
+        grad_logp *= active[il:ir].unsqueeze(-1)
+        grads_logp[il:ir] = grad_logp
+        sigma_t += (grad_logp.T @ grad_logp) / grad_logp.shape[0]
         
         rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (id * (-log_prob[:csiz]) + (1 - id) * entropy[:csiz]))
-        rewards[ir:] += reward[ir:] + agent.L * active[ir:] * entropy[csiz:]
+        rewards[ir:-csiz] += reward[ir:-csiz] + agent.L * active[ir:-csiz] * entropy[csiz:-csiz]
+        rewards[-csiz:] += reward[-csiz:]
     
-    rewards = rewards * (4 * idx - 2)
+    rewards[:-csiz] *= 4 * idx[:-csiz] - 2
     agent.store_grad(rewards, grads_logp)
+    return rewards[-csiz:].mean().item(), sigma_t
 
-def evaluate(env, agent):
+def evaluate(env, agent, g_t):
     env.new_instance()
+
+    csiz = env.bs_per_horizon
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
-    sigma_t = torch.zeros((agent.d, agent.d), dtype=torch.double, device=env.device)
+    idx = torch.zeros_like(rewards)
+    grads_logp = torch.zeros((env.bs, agent.d), dtype=torch.double, device=env.device)
+    sigma_star = torch.zeros((agent.d, agent.d), dtype=torch.double, device=env.device)
+
     for i in range(env.horizon):
+        il, ir = -(i + 1) * csiz, (env.horizon - i) * csiz
+
         state = env.get_state()
-        action, entropy = agent.get_action(state)
-        reward, active = env.get_reward(action)
-        rewards += reward
+        s_agent = state[il:]
+
+        a_env = env.get_reference_action()[:ir]
+        a_agent, entropy = agent.get_action(s_agent)
+
+        id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
+        idx[il:ir] = id
+        ax = id * a_env[-csiz:] + (1 - id) * a_agent[:csiz]
         
-        unif = torch.randint_like(action, env.action_size)
-        log_prob, grad_logp = agent.query_sa(state, unif)
-        grad_logp = grad_logp * active.unsqueeze(-1)
-        sigma_t += (grad_logp.T @ grad_logp) / grad_logp.shape[0]
-    
-    env.new_instance()
-    ref_rewards = torch.zeros_like(rewards)
-    sigma_star = torch.zeros_like(sigma_t)
-    for i in range(env.horizon):
-        state = env.get_state()
-        action = env.get_reference_action()
+        action = torch.cat((a_env[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
-        ref_rewards += reward
 
-        log_prob, grad_logp = agent.query_sa(state, action)
-        grad_logp = grad_logp * active.unsqueeze(-1)
+        log_prob, grad_logp = agent.query_sa(state[il:ir], a_env[-csiz:])
+        log_prob[log_prob < -agent.U] = -agent.U
+        grad_logp *= active[il:ir].unsqueeze(-1)
+        grads_logp[il:ir] = grad_logp
         sigma_star += (grad_logp.T @ grad_logp) / grad_logp.shape[0]
+        
+        rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (id * (-log_prob[:csiz]) + (1 - id) * entropy[:csiz]))
+        rewards[ir:-csiz] += reward[ir:-csiz] + agent.L * active[ir:-csiz] * entropy[csiz:-csiz]
+        rewards[:csiz] += reward[:csiz]
+    
+    rewards[csiz:] *= 4 * idx[csiz:] - 2
+    err_t = (rewards[csiz:] - g_t.T @ grads_logp[csiz:]).sum().item() / csiz
+    return rewards[:csiz].mean().item(), sigma_star, err_t
 
+def calc_log_kappa(sigma_t, sigma_star):
     S, U = torch.symeig(sigma_t, eigenvectors=True)
 
     pos_eig = S > 0
@@ -169,7 +138,7 @@ def evaluate(env, agent):
     st = U @ torch.diag(sqinv) @ U.T
 
     e = torch.symeig(st @ sigma_star @ st.T)[0]
-    return rewards.mean().item(), ref_rewards.mean().item(), log(e[-1])
+    return log(e[-1])
 
 if __name__ == "__main__":
     args = get_args()
@@ -183,14 +152,11 @@ if __name__ == "__main__":
     parser.read(args.config, encoding='utf-8')
     problem = dict(parser.items("Problem"))["name"]
 
-    assert problem in ["CSP", "OLKnapsackDecision"]
+    assert problem in ["SP", "OKD"]
 
     config = dict(parser.items(problem))
-    sample_type, init_type, seed, grad_cummu_step, phase_episode, save_episode, smooth_episode = unpack_config(**config)
-    if problem == "CSP":
-        curriculum_params = unpack_config_SP(**config)
-    elif problem == "OLKnapsackDecision":
-        curriculum_params = unpack_config_OKD(**config)
+    sample_type, init_type, seed, phase_episode, save_episode, smooth_episode = unpack_config(**config)
+    curriculum_params = unpack_config_REGISTRY[problem](**config)
 
     assert phase_episode % save_episode == 0
     assert save_episode % smooth_episode == 0
@@ -271,12 +237,8 @@ if __name__ == "__main__":
         else:
             curriculum_params = [env_curriculum_params, curriculum_params[1]]
     else: # initialize a new training
-        if problem == "CSP":
-            env = CSPEnv(args.device, **config)
-            agent = CSPAgent(args.device, **config)
-        elif problem == "OLKnapsackDecision":
-            env = OLKnapsackDecisionEnv(args.device, **config)
-            agent = OLKnapsackDecisionAgent(args.device, **config)
+        env = envs_REGISTRY[problem]
+        agent = agents_REGISTRY[problem]
         
         envs = []
 
@@ -311,7 +273,7 @@ if __name__ == "__main__":
 
     envs.insert(0, None)
 
-    labels = ["#sample", "reward", "reference reward", "log(Kappa)"]
+    labels = ["#sample", "reward", "reference reward", "err_t", "log(Kappa)"]
     buffers = torch.zeros((len(labels), smooth_episode))
     save_buffers = torch.zeros((len(labels), save_episode))
 
@@ -349,18 +311,14 @@ if __name__ == "__main__":
 
         for episode in episode_range:
             agent.zero_grad()
-            for gstep in range(grad_cummu_step):
-                collect_data(env, sampler, samp_a_unif, agent)
-            agent.update_param()
-            reward, ref_reward, log_kappa = evaluate(env, agent)
+            reward, sigma_t = collect_data(env, sampler, samp_a_unif, agent)
+            g_t = agent.update_param()
+            ref_reward, sigma_star, err_t = evaluate(env, agent, g_t)
+            log_kappa = calc_log_kappa(sigma_t, sigma_star)
 
             buf_idx = episode % smooth_episode
-            sample_cnt += grad_cummu_step * env.cnt_samples
-            buffers[0, buf_idx] = sample_cnt
-            buffers[1, buf_idx] = reward
-            buffers[2, buf_idx] = ref_reward
-            buffers[3, buf_idx] = log_kappa
-            save_buffers[:, episode % save_episode] = buffers[:, buf_idx]
+            sample_cnt += env.cnt_samples
+            save_buffers[:, episode % save_episode] = buffers[:, buf_idx] = torch.tensor([sample_cnt, reward, ref_reward, err_t, log_kappa])
 
             if (episode + 1) % smooth_episode == 0:
                 logger.log_stat("%s %s" % (prefix, "episode"), episode + 1, sample_cnt)

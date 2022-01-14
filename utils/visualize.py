@@ -1,6 +1,5 @@
 import torch
 import torch.nn.functional as F
-from agent import *
 import argparse
 import numpy as np
 import matplotlib
