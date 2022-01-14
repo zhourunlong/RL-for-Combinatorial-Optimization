@@ -76,10 +76,10 @@ def collect_data(env, sampler, samp_a_unif, agent):
         action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
 
-        log_prob, grad_logp = agent.query_sa(s_sampler[-csiz:], a_sampler[-csiz:])
+        log_prob, grad_logp = agent.query_sa(s_sampler, a_sampler)
         log_prob[log_prob < -agent.U] = -agent.U
-        grad_logp *= active[il:ir].unsqueeze(-1)
-        grads_logp[il:ir] = grad_logp
+        grad_logp *= active[:ir].unsqueeze(-1)
+        grads_logp[il:ir] = grad_logp[-csiz:]
         sigma_t += (grad_logp.T @ grad_logp) / grad_logp.shape[0]
         
         rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (id * (-log_prob[:csiz]) + (1 - id) * entropy[:csiz]))
@@ -100,7 +100,7 @@ def evaluate(env, agent, g_t):
     sigma_star = torch.zeros((agent.d, agent.d), dtype=torch.double, device=env.device)
 
     for i in range(env.horizon):
-        il, ir = -(i + 1) * csiz, (env.horizon - i) * csiz
+        il, ir = (env.horizon - i) * csiz, (env.horizon + 1 - i) * csiz
 
         state = env.get_state()
         s_agent = state[il:]
@@ -115,10 +115,10 @@ def evaluate(env, agent, g_t):
         action = torch.cat((a_env[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
 
-        log_prob, grad_logp = agent.query_sa(state[il:ir], a_env[-csiz:])
+        log_prob, grad_logp = agent.query_sa(state[:ir], a_env)
         log_prob[log_prob < -agent.U] = -agent.U
-        grad_logp *= active[il:ir].unsqueeze(-1)
-        grads_logp[il:ir] = grad_logp
+        grad_logp *= active[:ir].unsqueeze(-1)
+        grads_logp[il:ir] = grad_logp[-csiz:]
         sigma_star += (grad_logp.T @ grad_logp) / grad_logp.shape[0]
         
         rewards[il:ir] = active[il:ir] * (reward[il:ir] + agent.L * (id * (-log_prob[:csiz]) + (1 - id) * entropy[:csiz]))
@@ -126,7 +126,7 @@ def evaluate(env, agent, g_t):
         rewards[:csiz] += reward[:csiz]
     
     rewards[csiz:] *= 4 * idx[csiz:] - 2
-    err_t = (rewards[csiz:] - g_t.T @ grads_logp[csiz:]).sum().item() / csiz
+    err_t = (rewards[csiz:].unsqueeze(-1) - grads_logp[csiz:] @ g_t).sum().item() / csiz
     return rewards[:csiz].mean().item(), sigma_star, err_t
 
 def calc_log_kappa(sigma_t, sigma_star):
@@ -237,8 +237,8 @@ if __name__ == "__main__":
         else:
             curriculum_params = [env_curriculum_params, curriculum_params[1]]
     else: # initialize a new training
-        env = envs_REGISTRY[problem]
-        agent = agents_REGISTRY[problem]
+        env = envs_REGISTRY[problem](args.device, **config)
+        agent = agents_REGISTRY[problem](args.device, **config)
         
         envs = []
 
