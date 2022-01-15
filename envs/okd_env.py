@@ -24,11 +24,11 @@ class OKDEnv(BaseEnv):
         self.horizon = self.n
         self.bs = self.bs_per_horizon * (self.horizon + 1)
         if self.type == "uniform":
-            self.Fv = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
-            self.Fs = torch.ones((self.gran,), dtype=torch.double, device=self.device) / self.gran
+            self.Fv = torch.ones((self.gran,), dtype=torch.double, device=self.device)
+            self.Fs = torch.ones_like(self.Fv)
         else:
-            self.Fv = torch.rand((self.gran,), dtype=torch.double, device=self.device) / self.gran
-            self.Fs = torch.rand((self.gran,), dtype=torch.double, device=self.device) / self.gran
+            self.Fv = torch.rand((self.gran,), dtype=torch.double, device=self.device)
+            self.Fs = torch.rand((self.gran,), dtype=torch.double, device=self.device)
         self.new_instance()
         self.calc_ref_r()
         self.clean()
