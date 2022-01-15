@@ -20,7 +20,7 @@ class OKDEnv(BaseEnv):
     
     def set_curriculum_params(self, param):
         self.plot_states = None
-        [self.n, self.B, self.V] = param
+        [self.n, self.B, self.T] = param
         self.horizon = self.n
         self.bs = self.bs_per_horizon * (self.horizon + 1)
         if self.type == "uniform":
@@ -35,7 +35,7 @@ class OKDEnv(BaseEnv):
     
     @property
     def curriculum_params(self):
-        return [self.n, self.B, self.V]
+        return [self.n, self.B, self.T]
     
     @property
     def action_size(self):
@@ -55,7 +55,7 @@ class OKDEnv(BaseEnv):
         self.active = torch.ones_like(self.sum_v)
 
     def get_state(self):
-        return torch.stack((self.v[:, self.i], self.s[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum_s / self.B, self.sum_v / self.V), dim=1)
+        return torch.stack((self.v[:, self.i], self.s[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum_s / self.B, self.sum_v / self.T), dim=1)
     
     def get_reference_action(self):
         return (self.v[:, self.i] < self.r * self.s[:, self.i]).double()
@@ -66,8 +66,8 @@ class OKDEnv(BaseEnv):
         #die = self.active * (1 - action) * (1 - pickable.double())
         self.sum_s += valid * self.s[:, self.i]
         self.sum_v += valid * self.v[:, self.i]
-        win = self.sum_v >= self.V
-        self.sum_v[win] = self.V
+        win = self.sum_v >= self.T
+        self.sum_v[win] = self.T
         rwd = self.active * win
         ract = self.active.clone()
         self.active *= (1 - win.double()) #* (1 - die.double())
