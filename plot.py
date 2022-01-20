@@ -1,5 +1,3 @@
-from curses import window
-from hashlib import new
 import torch as th
 import numpy as np
 import matplotlib
@@ -7,17 +5,9 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import os
 from collections import defaultdict
+from train_overview import SP, OKD
 
-exp_dirs = {                              # sample      init        reg?
-    "t-0/0/0":  "Exp-20220114-121504-SP", # pi^t-pi^0	pi^0        0
-    "t-0/0/r":  "Exp-20220114-121550-SP", # pi^t-pi^0	pi^0	    reg
-    "t/0/0":    "Exp-20220114-165316-SP", # pi^t	    pi^0        0
-    "t/0/r":    "Exp-20220114-121419-SP", # pi^t	    pi^0        reg
-    "0/0/0":    "Exp-20220114-165201-SP", # pi^0	    pi^0        0
-    "0/0/r":    "Exp-20220114-165356-SP", # pi^0	    pi^0        reg
-    "t/0-t/0":  "Exp-20220114-120904-SP", # pi^t	    pi^0-pi^t   0
-    "t/0-t/r":  "Exp-20220114-121237-SP", # pi^t	    pi^0-pi^t   reg
-}
+exp_dirs = OKD["20000308"]
 
 colors = {
     "t-0/0/0":  [216, 30, 54],
@@ -46,12 +36,12 @@ lines = {
 }
 
 plots = [
+    #{
+    #    "exps": ["t/0/0", "t/0/r", "t/0-t/0"],
+    #    "vals": ["reward"],
+    #},
     {
-        "exps": ["t/0/0", "t/0/r", "t/0-t/0"],
-        "vals": ["reward"],
-    },
-    {
-        "exps": ["t-0/0/0", "0/0/0"],
+        "exps": ["t-0/0/0", "0/0/0", "t/0/0", "t/0-t/0"],
         "vals": ["reward", "log(Kappa)", "err_t"],
     },
 ]
