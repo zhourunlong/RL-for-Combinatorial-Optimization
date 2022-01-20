@@ -41,8 +41,8 @@ def unpack_config_SP(n_start, n_end, **kwargs):
 
 unpack_config_REGISTRY["SP"] = unpack_config_SP
 
-def unpack_config_OKD(n_start, n_end, B_start, B_end, T_start, T_end, **kwargs):
-    return [[int(n_start), float(B_start), float(T_start)], [int(n_end), float(B_end), float(T_end)]]
+def unpack_config_OKD(n_start, n_end, B_start, B_end, V_start, V_end, **kwargs):
+    return [[int(n_start), float(B_start), float(V_start)], [int(n_end), float(B_end), float(V_end)]]
 
 unpack_config_REGISTRY["OKD"] = unpack_config_OKD
 
