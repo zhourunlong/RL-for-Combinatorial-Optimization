@@ -47,34 +47,34 @@ SP["200000308"] = {                       # sample      init        reg?
 
 
 OKD["uniform"] = {                         # sample     init        reg?
-    "t-0/0/0":  "Exp-20220114-210254-OKD", # pi^t-pi^0	pi^0        0
+    "t-0/0/0":  "Exp-20220120-204913-OKD", # pi^t-pi^0	pi^0        0
     "t-0/0/r":  None,                      # pi^t-pi^0	pi^0	    reg
     "t/0/0":    "Exp-20220115-093200-OKD", # pi^t	    pi^0        0
     "t/0/r":    None,                      # pi^t	    pi^0        reg
     "0/0/0":    "Exp-20220115-093239-OKD", # pi^0	    pi^0        0
     "0/0/r":    None,                      # pi^0	    pi^0        reg
-    "t/0-t/0":  "Exp-20220114-210826-OKD", # pi^t	    pi^0-pi^t   0
+    "t/0-t/0":  "Exp-20220120-204459-OKD", # pi^t	    pi^0-pi^t   0
     "t/0-t/r":  None,                      # pi^t	    pi^0-pi^t   reg
 }
 
 OKD["2018011309"] = {                      # sample     init        reg?
-    "t-0/0/0":  "Exp-20220115-160548-OKD", # pi^t-pi^0	pi^0        0
+    "t-0/0/0":  "Exp-20220121-173212-OKD", # pi^t-pi^0	pi^0        0
     "t-0/0/r":  None,                      # pi^t-pi^0	pi^0	    reg
     "t/0/0":    "Exp-20220115-160627-OKD", # pi^t	    pi^0        0
     "t/0/r":    None,                      # pi^t	    pi^0        reg
     "0/0/0":    "Exp-20220115-201602-OKD", # pi^0	    pi^0        0
     "0/0/r":    None,                      # pi^0	    pi^0        reg
-    "t/0-t/0":  "Exp-20220115-093754-OKD", # pi^t	    pi^0-pi^t   0
+    "t/0-t/0":  "Exp-20220120-204716-OKD", # pi^t	    pi^0-pi^t   0
     "t/0-t/r":  None,                      # pi^t	    pi^0-pi^t   reg
 }
 
 OKD["20000308"] = {                        # sample     init        reg?
-    "t-0/0/0":  "Exp-20220115-232407-OKD", # pi^t-pi^0	pi^0        0
+    "t-0/0/0":  "Exp-20220120-204832-OKD", # pi^t-pi^0	pi^0        0
     "t-0/0/r":  None,                      # pi^t-pi^0	pi^0	    reg
     "t/0/0":    "Exp-20220115-232156-OKD", # pi^t	    pi^0        0
     "t/0/r":    None,                      # pi^t	    pi^0        reg
     "0/0/0":    "Exp-20220116-091233-OKD", # pi^0	    pi^0        0
     "0/0/r":    None,                      # pi^0	    pi^0        reg
-    "t/0-t/0":  "Exp-20220115-232302-OKD", # pi^t	    pi^0-pi^t   0
+    "t/0-t/0":  "Exp-20220120-205113-OKD", # pi^t	    pi^0-pi^t   0
     "t/0-t/r":  None,                      # pi^t	    pi^0-pi^t   reg
 }
