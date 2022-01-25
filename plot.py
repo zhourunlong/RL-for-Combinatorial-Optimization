@@ -6,6 +6,19 @@ from matplotlib.lines import Line2D
 import os
 from collections import defaultdict
 from train_overview import PROBLEMS
+from math import sqrt
+
+names = {
+    "t-0/0/0":  "fix_samp_curl",
+    "t-0/0/r":  "fix_samp_curl_reg",
+    "t/0/0":    "direct",
+    "t/0/r":    "direct_reg",
+    "0/0/0":    "naive_samp",
+    "0/0/r":    "naive_samp_reg",
+    "t/0-t/0":  "curl",
+    "t/0-t/r":  "curl_reg",
+    "ref":      "reference",
+}
 
 colors = {
     "t-0/0/0":  [216, 30, 54],
@@ -34,13 +47,13 @@ lines = {
 }
 
 plots = [
-    {
-        "exps": ["t/0/0", "t/0/r", "t/0-t/0", "t-0/0/0", "0/0/0"],
-        "vals": ["reward"],
-    },
+    #{
+    #    "exps": ["t/0/0", "t/0/r", "t/0-t/0", "t-0/0/0", "0/0/0"],
+    #    "vals": ["reward"],
+    #},
     {
         "exps": ["t-0/0/0", "0/0/0", "t/0/0", "t/0-t/0"],
-        "vals": ["log(Kappa)", "err_t"],
+        "vals": ["reward", "log(Kappa)", "err_t"],
     },
 ]
 
@@ -96,18 +109,37 @@ def smooth_from_window(data, ws):
         ret[n-1-i] /= ws + 1 + i
     return ret
 
+def std_from_window(data, ws):
+    n = data.shape[0]
+    ret = np.zeros((n,))
+    ret[ws:n-ws] = np.std(data[ws:n-ws], axis=1)
+    for i in range(ws):
+        ret[i] = np.std(data[i,:ws+i])
+        ret[n-1-i] = np.std(data[n-1-i,ws-i:])
+    return ret
+
 def plot_line(ax, x, y, window_size, confidence, alpha, color, linewidth, linestyle, max_sample):
+    b = y.max() - y.min()
+    delta = 1 - confidence / 100.
+
     yw = get_window(y, window_size)
 
-    low = get_percentile_from_window(yw, window_size, 100 - confidence)
-    high = get_percentile_from_window(yw, window_size, confidence)
+    #low = get_percentile_from_window(yw, window_size, 100 - confidence)
+    #high = get_percentile_from_window(yw, window_size, confidence)
     yy = smooth_from_window(yw, window_size)
+    std = std_from_window(yw, window_size)
+    dw = np.full_like(std, 2 * window_size)
+    for i in range(window_size):
+        dw[i] = window_size + i
+        dw[-1-i] = window_size + i
+    dw = np.log(2 / delta) / dw
+    dev = np.sqrt(std * dw * 2) + 7 * b / 3 * dw
 
     if max_sample is not None:
         idx = x <= max_sample
-        x, low, high, yy = x[idx], low[idx], high[idx], yy[idx]
+        x, yy, dev = x[idx], yy[idx], dev[idx]
 
-    ax.fill_between(x, low, high, alpha=alpha, color=color, linewidth=0)
+    ax.fill_between(x, yy - dev, yy + dev, alpha=alpha, color=color, linewidth=0)
     ax.plot(x, yy, color=color, linewidth=linewidth, linestyle=linestyle)
 
     return yy.min(), yy.max()
@@ -158,6 +190,8 @@ def plot(problem_name, problem_run, max_sample=None):
                 if exp_dirs[exp] is None:
                     continue
 
+                if valname == "err_t":
+                    data[exp]["err_t"] = np.abs(data[exp]["err_t"])
                 _y_min, _y_max = plot_line(ax, data[exp]["#sample"], data[exp][valname], window_size, confidence, alpha, colors[exp], linewidth, lines[exp], max_sample)
                 
                 y_min = min(y_min, _y_min)
@@ -167,16 +201,19 @@ def plot(problem_name, problem_run, max_sample=None):
             ax.tick_params("x", labelsize=font_size)
             ax.tick_params("y", labelsize=font_size)
             ax.set_xlabel("#sample", size=font_size)
-            ax.set_ylabel(valname, size=font_size)
+            ax.set_ylabel("|err_t|" if valname == "err_t" else valname, size=font_size)
             ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.05)
             ax.set_title(str(idx), size=legend_font_size)
 
-    legend_elements = [Line2D([0], [0], lw=linewidth, label=exp, color=colors[exp], linestyle = lines[exp]) for exp in used_exps]
+    legend_elements = [Line2D([0], [0], lw=linewidth, label=names[exp], color=colors[exp], linestyle = lines[exp]) for exp in used_exps]
     figure.legend(handles=legend_elements, loc="lower center", prop={"size": legend_font_size}, ncol=len(used_exps), bbox_to_anchor=anchor, frameon=False)
 
+    fn = "plot_%s_%s%s.pdf" % (problem_name, problem_run, "" if max_sample is None else "_%d" % (max_sample))
     figure.tight_layout()
-    figure.savefig("plot_%s_%s%s.pdf" % (problem_name, problem_run, "" if max_sample is None else "_%d" % (max_sample)), bbox_inches="tight", dpi=300)
+    figure.savefig(fn, bbox_inches="tight", dpi=300)
     plt.close(figure)
+
+    print(fn)
 
 if __name__ == "__main__":
     plot("SP", "uniform", int(3e8))
