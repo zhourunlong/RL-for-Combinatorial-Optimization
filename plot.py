@@ -48,7 +48,7 @@ alpha = 0.2
 confidence = 75
 font_size = 26
 legend_font_size = 32
-anchor = (0.5, 0.97)
+anchor = (0.5, 0.85)
 fig_size = (8, 6)
 linewidth = 3
 window_size = 100
@@ -175,14 +175,12 @@ def plot(problem_name, problem_run, max_sample=None):
     figure.legend(handles=legend_elements, loc="lower center", prop={"size": legend_font_size}, ncol=len(used_exps), bbox_to_anchor=anchor, frameon=False)
 
     figure.tight_layout()
-    figure.savefig("plot_%s_%s.pdf" % (problem_name, problem_run), bbox_inches="tight", dpi=300)
+    figure.savefig("plot_%s_%s%s.pdf" % (problem_name, problem_run, "" if max_sample is None else "_%d" % (max_sample)), bbox_inches="tight", dpi=300)
     plt.close(figure)
 
 if __name__ == "__main__":
-    #plot("SP", "uniform", int(3e8))
+    plot("SP", "uniform", int(3e8))
     
     for problem_name, problem_run_dict in PROBLEMS.items():
         for problem_run in problem_run_dict.keys():
             plot(problem_name, problem_run)
-
-
