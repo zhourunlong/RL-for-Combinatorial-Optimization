@@ -1,6 +1,8 @@
 SP = {}
 OKD = {}
 
+PROBLEMS = {"SP": SP, "OKD": OKD}
+
 SP["uniform"] = {                         # sample      init        reg?
     "t-0/0/0":  "Exp-20220116-091502-SP", # pi^t-pi^0	pi^0        0
     "t-0/0/r":  "Exp-20220116-091645-SP", # pi^t-pi^0	pi^0	    reg
@@ -34,7 +36,7 @@ SP["19283746"] = {                        # sample      init        reg?
     "t/0-t/r":  "Exp-20220114-165454-SP", # pi^t	    pi^0-pi^t   reg
 }
 
-SP["200000308"] = {                       # sample      init        reg?
+SP["20000308"] = {                        # sample      init        reg?
     "t-0/0/0":  "Exp-20220114-165537-SP", # pi^t-pi^0	pi^0        0
     "t-0/0/r":  "Exp-20220114-165614-SP", # pi^t-pi^0	pi^0	    reg
     "t/0/0":    "Exp-20220114-185932-SP", # pi^t	    pi^0        0

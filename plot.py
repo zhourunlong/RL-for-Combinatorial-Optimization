@@ -5,9 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import os
 from collections import defaultdict
-from train_overview import SP, OKD
-
-exp_dirs = OKD["20000308"]
+from train_overview import PROBLEMS
 
 colors = {
     "t-0/0/0":  [216, 30, 54],
@@ -25,35 +23,35 @@ colors = {key: np.array(val, np.float) / 255. for key, val in colors.items()}
 
 lines = {
     "t-0/0/0":  "-",
-    "t-0/0/r":  "--",
-    "t/0/0":    "-",
+    "t-0/0/r":  "-",
+    "t/0/0":    "--",
     "t/0/r":    "--",
-    "0/0/0":    "-",
+    "0/0/0":    "--",
     "0/0/r":    "--",
     "t/0-t/0":  "-",
-    "t/0-t/r":  "--",
-    "ref":      "-",
+    "t/0-t/r":  "-",
+    "ref":      "--",
 }
 
 plots = [
-    #{
-    #    "exps": ["t/0/0", "t/0/r", "t/0-t/0"],
-    #    "vals": ["reward"],
-    #},
+    {
+        "exps": ["t/0/0", "t/0/r", "t/0-t/0", "t-0/0/0", "0/0/0"],
+        "vals": ["reward"],
+    },
     {
         "exps": ["t-0/0/0", "0/0/0", "t/0/0", "t/0-t/0"],
-        "vals": ["reward", "log(Kappa)", "err_t"],
+        "vals": ["log(Kappa)", "err_t"],
     },
 ]
 
 alpha = 0.2
-scale = 50.
-confidence = 0.95
+confidence = 75
 font_size = 26
 legend_font_size = 32
-anchor = (0.5, 1.04)
+anchor = (0.5, 0.97)
+fig_size = (8, 6)
 linewidth = 3
-window_size=100
+window_size = 100
 
 def read_data(dir):
     log_dir = os.path.join(dir, "logdata", "final")
@@ -98,70 +96,93 @@ def smooth_from_window(data, ws):
         ret[n-1-i] /= ws + 1 + i
     return ret
 
-def plot_line(ax, x, y, window_size, alpha, color, linewidth, linestyle):
+def plot_line(ax, x, y, window_size, confidence, alpha, color, linewidth, linestyle, max_sample):
     yw = get_window(y, window_size)
 
-    low = get_percentile_from_window(yw, window_size, 25)
-    high = get_percentile_from_window(yw, window_size, 75)
+    low = get_percentile_from_window(yw, window_size, 100 - confidence)
+    high = get_percentile_from_window(yw, window_size, confidence)
     yy = smooth_from_window(yw, window_size)
 
+    if max_sample is not None:
+        idx = x <= max_sample
+        x, low, high, yy = x[idx], low[idx], high[idx], yy[idx]
+
     ax.fill_between(x, low, high, alpha=alpha, color=color, linewidth=0)
-    ax.plot(x, yy, color=color, label=exp, linewidth=linewidth, linestyle=linestyle)
+    ax.plot(x, yy, color=color, linewidth=linewidth, linestyle=linestyle)
 
     return yy.min(), yy.max()
 
-matplotlib.rc('font', size=font_size)
-figure = plt.figure(figsize=(32, 22))
-tot_sub_plot = sum(len(plot["vals"]) for plot in plots)
-idx = 0
+def plot(problem_name, problem_run, max_sample=None):
+    exp_dirs = PROBLEMS[problem_name][problem_run]
 
-used_exps = []
-for plot in plots:
-    data = {}
-    for exp in plot["exps"]:
-        data[exp] = read_data(exp_dirs[exp])
-        if exp not in used_exps:
-            used_exps.append(exp)
-    for valname in plot["vals"]:
-        idx += 1
-        ax = plt.subplot(2, 2, idx)
+    tot_sub_plot = sum(len(plot["vals"]) for plot in plots)
+    idx = 0
 
-        ax.grid()
-        method_index = 0
-        y_min, y_max = 0, 0
+    matplotlib.rc('font', size=font_size)
+    figure = plt.figure(figsize=(fig_size[0] * tot_sub_plot, fig_size[1]))
 
-        if valname == "reward":
-            # find longest experiment
-            _mx = 0
-            for _exp in plot["exps"]:
-                if data[_exp]["reward"].shape[0] > _mx:
-                    _mx = data[_exp]["reward"].shape[0]
-                    exp = _exp
-
-            _y_min, _y_max = plot_line(ax, data[exp]["#sample"], data[exp]["reference reward"], window_size, alpha, colors["ref"], linewidth, lines["ref"])
-            if "ref" not in used_exps:
-                used_exps.append("ref")
-            
-            y_min = min(y_min, _y_min)
-            y_max = max(y_max, _y_max)
-        
+    used_exps = []
+    for plot in plots:
+        data = {}
         for exp in plot["exps"]:
-            _y_min, _y_max = plot_line(ax, data[exp]["#sample"], data[exp][valname], window_size, alpha, colors[exp], linewidth, lines[exp])
+            if exp_dirs[exp] is None:
+                continue
+            data[exp] = read_data(exp_dirs[exp])
+            if exp not in used_exps:
+                used_exps.append(exp)
+        for valname in plot["vals"]:
+            idx += 1
+            ax = plt.subplot(1, tot_sub_plot, idx)
+
+            ax.grid()
+            y_min, y_max = 0, 0
+
+            if valname == "reward":
+                # find longest experiment
+                _mx = 0
+                for _exp in plot["exps"]:
+                    if exp_dirs[_exp] is None:
+                        continue
+                    if data[_exp]["reward"].shape[0] > _mx:
+                        _mx = data[_exp]["reward"].shape[0]
+                        exp = _exp
+
+                _y_min, _y_max = plot_line(ax, data[exp]["#sample"], data[exp]["reference reward"], window_size, confidence, alpha, colors["ref"], linewidth, lines["ref"], max_sample)
+                if "ref" not in used_exps:
+                    used_exps.append("ref")
+                
+                y_min = min(y_min, _y_min)
+                y_max = max(y_max, _y_max)
             
-            y_min = min(y_min, _y_min)
-            y_max = max(y_max, _y_max)
-        
-        y_range = y_max - y_min
-        ax.tick_params("x", labelsize=font_size)
-        ax.tick_params("y", labelsize=font_size)
-        ax.set_xlabel("#sample", size=font_size)
-        ax.set_ylabel(valname, size=font_size)
-        ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.05)
-        ax.set_title(str(idx), size=legend_font_size)
+            for exp in plot["exps"]:
+                if exp_dirs[exp] is None:
+                    continue
 
-legend_elements = [Line2D([0], [0], lw=linewidth, label=exp, color=colors[exp], linestyle = lines[exp]) for exp in used_exps]
-figure.legend(handles=legend_elements, loc='upper center', prop={'size': legend_font_size}, ncol=len(used_exps), bbox_to_anchor=anchor, frameon=False)
+                _y_min, _y_max = plot_line(ax, data[exp]["#sample"], data[exp][valname], window_size, confidence, alpha, colors[exp], linewidth, lines[exp], max_sample)
+                
+                y_min = min(y_min, _y_min)
+                y_max = max(y_max, _y_max)
+            
+            y_range = y_max - y_min
+            ax.tick_params("x", labelsize=font_size)
+            ax.tick_params("y", labelsize=font_size)
+            ax.set_xlabel("#sample", size=font_size)
+            ax.set_ylabel(valname, size=font_size)
+            ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.05)
+            ax.set_title(str(idx), size=legend_font_size)
 
-figure.tight_layout()
-figure.savefig("plot.pdf", bbox_inches="tight", dpi=300)
-plt.close(figure)
+    legend_elements = [Line2D([0], [0], lw=linewidth, label=exp, color=colors[exp], linestyle = lines[exp]) for exp in used_exps]
+    figure.legend(handles=legend_elements, loc="lower center", prop={"size": legend_font_size}, ncol=len(used_exps), bbox_to_anchor=anchor, frameon=False)
+
+    figure.tight_layout()
+    figure.savefig("plot_%s_%s.pdf" % (problem_name, problem_run), bbox_inches="tight", dpi=300)
+    plt.close(figure)
+
+if __name__ == "__main__":
+    #plot("SP", "uniform", int(3e8))
+    
+    for problem_name, problem_run_dict in PROBLEMS.items():
+        for problem_run in problem_run_dict.keys():
+            plot(problem_name, problem_run)
+
+
