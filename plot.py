@@ -6,7 +6,8 @@ from matplotlib.lines import Line2D
 import os
 from collections import defaultdict
 from train_overview import PROBLEMS
-from math import sqrt
+import configparser
+
 
 names = {
     "t-0/0/0":  "fix_samp_curl",
@@ -80,6 +81,14 @@ def read_data(dir):
     ret = {}
     for key, val in v.items():
         ret[key] = th.cat(val).numpy()
+
+    parser = configparser.RawConfigParser()
+    parser.optionxform = lambda option: option
+    parser.read(os.path.join(dir, "config.ini"), encoding='utf-8')
+    problem = dict(parser.items("Problem"))["name"]
+    config = dict(parser.items(problem))
+    ret["lr"] = float(config["lr"])
+    ret["L"] = float(config["L"])
     return ret
 
 def get_window(data, ws):
@@ -124,8 +133,6 @@ def plot_line(ax, x, y, window_size, confidence, alpha, color, linewidth, linest
 
     yw = get_window(y, window_size)
 
-    #low = get_percentile_from_window(yw, window_size, 100 - confidence)
-    #high = get_percentile_from_window(yw, window_size, confidence)
     yy = smooth_from_window(yw, window_size)
     std = std_from_window(yw, window_size)
     dw = np.full_like(std, 2 * window_size)
@@ -143,6 +150,16 @@ def plot_line(ax, x, y, window_size, confidence, alpha, color, linewidth, linest
     ax.plot(x, yy, color=color, linewidth=linewidth, linestyle=linestyle)
 
     return yy.min(), yy.max()
+
+def calc_err(a, r):
+    n = a.shape[0]
+    b = np.zeros((n,))
+    sum, weight = 0, 0
+    for i in range(n):
+        sum = sum * r + a[i]
+        weight = weight * r + 1
+        b[i] = sum / weight
+    return b
 
 def plot(problem_name, problem_run, max_sample=None):
     exp_dirs = PROBLEMS[problem_name][problem_run]
@@ -191,7 +208,7 @@ def plot(problem_name, problem_run, max_sample=None):
                     continue
 
                 if valname == "err_t":
-                    data[exp]["err_t"] = np.abs(data[exp]["err_t"])
+                    data[exp]["err_t"] = calc_err(data[exp]["err_t"], 1 - data[exp]["lr"] * data[exp]["L"])
                 _y_min, _y_max = plot_line(ax, data[exp]["#sample"], data[exp][valname], window_size, confidence, alpha, colors[exp], linewidth, lines[exp], max_sample)
                 
                 y_min = min(y_min, _y_min)
@@ -201,7 +218,7 @@ def plot(problem_name, problem_run, max_sample=None):
             ax.tick_params("x", labelsize=font_size)
             ax.tick_params("y", labelsize=font_size)
             ax.set_xlabel("#sample", size=font_size)
-            ax.set_ylabel("|err_t|" if valname == "err_t" else valname, size=font_size)
+            ax.set_ylabel("avg(err_t)" if valname == "err_t" else valname, size=font_size)
             ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.05)
             ax.set_title(str(idx), size=legend_font_size)
 
