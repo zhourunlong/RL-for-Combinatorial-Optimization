@@ -24,16 +24,16 @@ names = {
 colors = {
     "t-0/0/0":  [216, 30, 54],
     "t-0/0/r":  [254, 151, 0],
-    "t/0/0":    [0, 178, 238],
+    "t/0/0":    [86, 180, 233],
     "t/0/r":    [160, 32, 240],
-    "0/0/0":    [180, 180, 180],
+    "0/0/0":    [70, 70, 70],
     "0/0/r":    [139, 101, 8],
     "t/0-t/0":  [0, 100, 0],
-    "t/0-t/r":  [204, 153, 255],
+    "t/0-t/r":  [204, 121, 167],
     "ref":      [50, 240, 80],
 }
 
-colors = {key: np.array(val, np.float) / 255. for key, val in colors.items()}
+colors = {key: np.array(val) / 255. for key, val in colors.items()}
 
 lines = {
     "t-0/0/0":  "-",
@@ -56,10 +56,14 @@ plots = [
         "exps": ["t-0/0/0", "0/0/0", "t/0/0", "t/0-t/0"],
         "vals": ["reward", "log(Kappa)", "err_t"],
     },
+    #{
+    #    "exps": ["t-0/0/0", "t-0/0/r", "t/0/0", "t/0/r", "0/0/0", "0/0/r", "t/0-t/0", "t/0-t/r"],
+    #    "vals": ["reward", "log(Kappa)", "err_t"],
+    #},
 ]
 
 alpha = 0.2
-confidence = 75
+confidence = 95
 font_size = 26
 legend_font_size = 32
 anchor = (0.5, 0.85)
@@ -162,6 +166,8 @@ def calc_err(a, r):
     return b
 
 def plot(problem_name, problem_run, max_sample=None):
+    os.makedirs("plots", exist_ok=True)
+
     exp_dirs = PROBLEMS[problem_name][problem_run]
 
     tot_sub_plot = sum(len(plot["vals"]) for plot in plots)
@@ -176,7 +182,7 @@ def plot(problem_name, problem_run, max_sample=None):
         for exp in plot["exps"]:
             if exp_dirs[exp] is None:
                 continue
-            data[exp] = read_data(exp_dirs[exp])
+            data[exp] = read_data("exps/" + exp_dirs[exp])
             if exp not in used_exps:
                 used_exps.append(exp)
         for valname in plot["vals"]:
@@ -220,12 +226,12 @@ def plot(problem_name, problem_run, max_sample=None):
             ax.set_xlabel("#sample", size=font_size)
             ax.set_ylabel("avg(err_t)" if valname == "err_t" else valname, size=font_size)
             ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.05)
-            ax.set_title(str(idx), size=legend_font_size)
+            ax.set_title("(" + chr(idx - 1 + ord('a')) + ")", size=legend_font_size)
 
     legend_elements = [Line2D([0], [0], lw=linewidth, label=names[exp], color=colors[exp], linestyle = lines[exp]) for exp in used_exps]
     figure.legend(handles=legend_elements, loc="lower center", prop={"size": legend_font_size}, ncol=len(used_exps), bbox_to_anchor=anchor, frameon=False)
 
-    fn = "plot_%s_%s%s.pdf" % (problem_name, problem_run, "" if max_sample is None else "_%d" % (max_sample))
+    fn = "plots/plot_%s_%s%s.pdf" % (problem_name, problem_run, "" if max_sample is None else "_%d" % (max_sample))
     figure.tight_layout()
     figure.savefig(fn, bbox_inches="tight", dpi=300)
     plt.close(figure)
