@@ -48,25 +48,17 @@ lines = {
 }
 
 plots = [
-    #{
-    #    "exps": ["t/0/0", "t/0/r", "t/0-t/0", "t-0/0/0", "0/0/0"],
-    #    "vals": ["reward"],
-    #},
     {
         "exps": ["t-0/0/0", "0/0/0", "t/0/0", "t/0-t/0"],
-        "vals": ["reward", "log(Kappa)", "err_t"],
+        "vals": ["reward", "log(Kappa)"],
     },
-    #{
-    #    "exps": ["t-0/0/0", "t-0/0/r", "t/0/0", "t/0/r", "0/0/0", "0/0/r", "t/0-t/0", "t/0-t/r"],
-    #    "vals": ["reward", "log(Kappa)", "err_t"],
-    #},
 ]
 
 alpha = 0.2
 confidence = 95
 font_size = 26
-legend_font_size = 32
-anchor = (0.5, 0.85)
+legend_font_size = 20
+anchor = (-0.05, 0.4)
 fig_size = (8, 6)
 linewidth = 3
 window_size = 100
@@ -172,7 +164,7 @@ def plot(problem_name, problem_run, max_sample=None):
     idx = 0
 
     matplotlib.rc('font', size=font_size)
-    figure = plt.figure(figsize=(fig_size[0] * tot_sub_plot, fig_size[1]))
+    figure = plt.figure(figsize=(fig_size[0], fig_size[1] * tot_sub_plot))
 
     used_exps = []
     for plot in plots:
@@ -185,7 +177,7 @@ def plot(problem_name, problem_run, max_sample=None):
                 used_exps.append(exp)
         for valname in plot["vals"]:
             idx += 1
-            ax = plt.subplot(1, tot_sub_plot, idx)
+            ax = plt.subplot(tot_sub_plot, 1, idx)
 
             ax.grid()
             y_min, y_max = 0, 0
@@ -227,9 +219,9 @@ def plot(problem_name, problem_run, max_sample=None):
             ax.set_title("(" + chr(idx - 1 + ord('a')) + ")", size=legend_font_size)
 
     legend_elements = [Line2D([0], [0], lw=linewidth, label=names[exp], color=colors[exp], linestyle = lines[exp]) for exp in used_exps]
-    figure.legend(handles=legend_elements, loc="lower center", prop={"size": legend_font_size}, ncol=len(used_exps), bbox_to_anchor=anchor, frameon=False)
+    figure.legend(handles=legend_elements, loc="lower center", prop={"size": legend_font_size}, ncol=1, bbox_to_anchor=anchor, frameon=False)
 
-    fn = "plots/plot_%s_%s%s.pdf" % (problem_name, problem_run, "" if max_sample is None else "_%d" % (max_sample))
+    fn = "plots_poster/plot_%s_%s%s.pdf" % (problem_name, problem_run, "" if max_sample is None else "_%d" % (max_sample))
     figure.tight_layout()
     figure.savefig(fn, bbox_inches="tight", dpi=300)
     plt.close(figure)
