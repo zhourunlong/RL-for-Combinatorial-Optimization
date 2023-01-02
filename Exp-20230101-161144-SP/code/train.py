@@ -87,7 +87,7 @@ def collect_data(env, sampler, samp_a_unif, agent):
         ax = id * a_sampler[-csiz:] + (1 - id) * a_agent[:csiz]
 
         action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
-#        print(action.size())
+        print(action.size())
         reward, active = env.get_reward(action)
 
         log_prob, grad_logp = agent.query_sa(s_sampler, a_sampler)
