@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from .base_env import BaseEnv
 import torch
 import numpy as np
+import math
 import matplotlib
 matplotlib.use('Agg')
 
@@ -17,7 +18,6 @@ class ADWEnv(BaseEnv):
     def move_device(self, device):
         self.device = device
         self.Fv.to(self.device)
-        self.Fs.to(self.device)
 
 # params
 # n-> n ad slots
@@ -54,7 +54,6 @@ class ADWEnv(BaseEnv):
                                                 dtype=torch.double, device=self.device)
         return sample.view(self.bs, self.n, self.m) / self.gran
 
-# New instance: working
 # sum_v -> value each advertiser spent
 # v -> value i,j
 # total_revenue -> total_revenue
@@ -68,10 +67,26 @@ class ADWEnv(BaseEnv):
         self.active = torch.ones_like(self.sum_v)
 
     def get_state(self):
-        return torch.stack((self.v[:, self.i], torch.full((self.bs,), (self.i + 1) / self.n, dtype=torch.double, device=self.device), self.sum_s / self.B, self.sum_v / self.V), dim=1)
+        state = list(self.v[:, self.i, ],
+                     self.v[:, self.i, ].shape[0], dim=1)
+        state.append(torch.full((self.bs,), (self.i + 1) / self.n,
+                     dtype=torch.double, device=self.device))
+        state.append(self.sum_v)
+        return torch.stack(state, dim=1)
 
 # get_reference_action
+# action:
+# 0: reject every advertiser
+# 1-m: {advertiser_action}
     def get_reference_action(self):
+        curmax = 0
+        argmax = 0
+        for j in range(1, self.m + 1):
+            if self.v[:, self.i, j] * (math.e ** (self.sum_v[:, self.i] / self.B[:, self.i])) > curmax:
+                argmax = j
+                curmax = self.v[:, self.i, j] *
+                (math.e ** (self.sum_v[:, self.i] / self.B[:, self.i]))
+        return argmax
         #    return (self.v[:, self.i] < self.r * self.s[:, self.i]).double()
 
         # Get Reward
@@ -79,8 +94,9 @@ class ADWEnv(BaseEnv):
         #        pickable = []
         #        for j in range(self.m):
         #            pickable.append(self.v[:, self.i, j] + self.sum_v[j]  < self.B[j])
-        pickable = self.v[:, self.i, action] + self.sum_v[action]
-        valid = self.active * (action != m) * pickable
+        pickable = self.v[:, self.i, action] + \
+            self.sum_v[action] < self.B[action]
+        valid = self.active * (action != 0) * pickable
         #die = self.active * (1 - action) * (1 - pickable.double())
         self.sum_v += valid * self.v[:, self.i, action]
         self.total_revenue += valid * self.v[:, self.i, action]
@@ -94,29 +110,6 @@ class ADWEnv(BaseEnv):
     def clean(self):
         del self.v, self.sum_v, self.plot_states
         self.plot_states = None
-
-    def calc_ref_r(self):
-        def calc(r):
-            sum = torch.zeros((self.bs,), dtype=torch.double,
-                              device=self.device)
-            rwd = torch.zeros_like(sum)
-            for i in range(self.horizon):
-                action = (self.v[:, i] < r * self.s[:, i]).double()
-                valid = (1 - action) * ((sum + self.s[:, i]) <= self.B)
-                sum += valid * self.s[:, i]
-                rwd += valid * self.v[:, i]
-
-            return rwd.mean().item()
-
-        l, r = 0, 10
-        for _ in range(20):
-            m1, m2 = (2 * l + r) / 3, (l + 2 * r) / 3
-            c1, c2 = calc(m1), calc(m2)
-            if c1 > c2:
-                r = m2
-            else:
-                l = m1
-        self.r = l
 
     def get_plot_states(self):
         if self.plot_states is not None:
@@ -132,6 +125,7 @@ class ADWEnv(BaseEnv):
 
         return self.plot_states
 
+# two demensions: value & value / budget for average advertisers
     def plot_prob_figure(self, agent, pic_dir):
         fig = plt.figure(figsize=(22, 25))
         color_map = "viridis"
