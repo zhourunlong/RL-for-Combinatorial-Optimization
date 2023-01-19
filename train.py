@@ -56,6 +56,13 @@ def unpack_config_OKD(n_start, n_end, B_start, B_end, V_start, V_end, **kwargs):
 unpack_config_REGISTRY["OKD"] = unpack_config_OKD
 
 
+def unpack_config_ADW(n_start, n_end, m_start, m_end, V_start, V_end,  **kwargs):
+    return [[int(n_start), int(m_start), float(V_start)], [int(n_end), int(m_end), float(V_end)]]
+
+
+unpack_config_REGISTRY["ADW"] = unpack_config_ADW
+
+
 def unpack_checkpoint(agent, envs, sampler, **kwargs):
     return agent, envs, sampler
 
@@ -65,12 +72,14 @@ def collect_data(env, sampler, samp_a_unif, agent):
 
     csiz = env.bs_per_horizon
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
+    # print("size-bef", rewards.shape)
     idx = torch.zeros_like(rewards)
     grads_logp = torch.zeros(
         (env.bs, agent.d), dtype=torch.double, device=env.device)
     sigma_t = torch.zeros((agent.d, agent.d),
                           dtype=torch.double, device=env.device)
 
+    # print(env.horizon)
     for i in range(env.horizon):
         il, ir = -(i + 2) * csiz, -(i + 1) * csiz
 
@@ -79,8 +88,8 @@ def collect_data(env, sampler, samp_a_unif, agent):
 
         a_sampler, _ = sampler.get_action(s_sampler)
         a_agent, entropy = agent.get_action(s_agent)
-
-        id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
+        id = torch.randint(2, (csiz,),
+                           dtype=torch.double, device=env.device)
         idx[il:ir] = id
         if samp_a_unif:
             a_sampler[-csiz:] = torch.randint_like(id, env.action_size)
@@ -89,7 +98,8 @@ def collect_data(env, sampler, samp_a_unif, agent):
         action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
 #        print(action.size())
         reward, active = env.get_reward(action)
-
+#        print("rew", reward.mean().item())
+#        print("reward", torch.max(reward).item())
         log_prob, grad_logp = agent.query_sa(s_sampler, a_sampler)
         log_prob[log_prob < -agent.U] = -agent.U
         grad_logp *= active[:ir].unsqueeze(-1)
@@ -101,9 +111,14 @@ def collect_data(env, sampler, samp_a_unif, agent):
         rewards[ir:-csiz] += reward[ir:-csiz] + agent.L * \
             active[ir:-csiz] * entropy[csiz:-csiz]
         rewards[-csiz:] += reward[-csiz:]
+        # print(reward.mean())
 
+    # print("csiz", csiz)
+    # print("conclu", rewards.mean())
     rewards[:-csiz] *= 4 * idx[:-csiz] - 2
+    # print("after", rewards[-csiz:].mean().item())
     agent.store_grad(rewards, grads_logp)
+    # print("size", rewards.shape)
     return rewards[-csiz:].mean().item(), sigma_t
 
 
@@ -133,6 +148,7 @@ def evaluate(env, agent, g_t):
 
         action = torch.cat((a_env[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
+#        print("ref_rew", reward.mean().item())
 
         log_prob, grad_logp = agent.query_sa(state[:ir], a_env)
         log_prob[log_prob < -agent.U] = -agent.U
@@ -177,7 +193,7 @@ if __name__ == "__main__":
     parser.read(args.config, encoding='utf-8')
     problem = dict(parser.items("Problem"))["name"]
 
-    assert problem in ["SP", "OKD"]
+    assert problem in ["SP", "OKD", "ADW"]
 
     config = dict(parser.items(problem))
     sample_type, init_type, seed, phase_episode, save_episode, smooth_episode = unpack_config(
@@ -343,6 +359,7 @@ if __name__ == "__main__":
         cur_phase_episode = phase_episode
 
         for episode in episode_range:
+            # print(episode)
             agent.zero_grad()
             reward, sigma_t = collect_data(env, sampler, samp_a_unif, agent)
             g_t = agent.update_param()

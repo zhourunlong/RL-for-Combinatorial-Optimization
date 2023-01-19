@@ -191,7 +191,7 @@ def plot(problem_name, problem_run, max_sample=None):
             y_min, y_max = 0, 0
 
             if valname == "reward":
-                # find longest experiment
+                # find longest experimen    t
                 _mx = 0
                 for _exp in plot["exps"]:
                     if exp_dirs[_exp] is None:
