@@ -39,7 +39,6 @@ class OKDAgent(LogLinearAgent):
     def get_action(self, states):
         params = self.get_logits(states)
         params = torch.cat([params, torch.zeros_like(params)], dim=-1)
-        # print(params.shape)
 
         probs = F.softmax(params, dim=-1)
         log_probs = F.log_softmax(params, dim=-1)
@@ -59,13 +58,8 @@ class OKDAgent(LogLinearAgent):
         actions = actions.long().view(states.shape[0], 1)
 
         prob = probs.gather(1, actions).view(-1,)
-#        print("prob", prob)
         log_prob = log_probs.gather(1, actions).view(-1,)
-        # print("shape actions", actions.shape)
-        # print("shape phi", phi.shape)
-        # print("prob shape", (1 - prob).view(-1, 1).shape)
         grad_logp = (1 - prob).view(-1, 1) * (1 - 2 * actions) * phi
-        # print("shape grad", grad_logp.shape)
         return log_prob, grad_logp
 
     def get_logits(self, states):

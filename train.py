@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import shutil
+from weakref import ref
 import numpy as np
 import torch
 import random
@@ -24,6 +25,7 @@ def get_args():
     parser.add_argument("--config", default="config.ini", type=str)
     parser.add_argument("--load-path", default=None, type=str)
     parser.add_argument("--override-phase-episode", default=None, type=int)
+    parser.add_argument("--reference-agent", default=None, type=str)
     return parser.parse_args()
 
 
@@ -72,14 +74,12 @@ def collect_data(env, sampler, samp_a_unif, agent):
 
     csiz = env.bs_per_horizon
     rewards = torch.zeros((env.bs,), dtype=torch.double, device=env.device)
-    # print("size-bef", rewards.shape)
     idx = torch.zeros_like(rewards)
     grads_logp = torch.zeros(
         (env.bs, agent.d), dtype=torch.double, device=env.device)
     sigma_t = torch.zeros((agent.d, agent.d),
                           dtype=torch.double, device=env.device)
 
-    # print(env.horizon)
     for i in range(env.horizon):
         il, ir = -(i + 2) * csiz, -(i + 1) * csiz
 
@@ -96,10 +96,7 @@ def collect_data(env, sampler, samp_a_unif, agent):
         ax = id * a_sampler[-csiz:] + (1 - id) * a_agent[:csiz]
 
         action = torch.cat((a_sampler[:-csiz], ax, a_agent[csiz:]))
-#        print(action.size())
         reward, active = env.get_reward(action)
-#        print("rew", reward.mean().item())
-#        print("reward", torch.max(reward).item())
         log_prob, grad_logp = agent.query_sa(s_sampler, a_sampler)
         log_prob[log_prob < -agent.U] = -agent.U
         grad_logp *= active[:ir].unsqueeze(-1)
@@ -111,18 +108,13 @@ def collect_data(env, sampler, samp_a_unif, agent):
         rewards[ir:-csiz] += reward[ir:-csiz] + agent.L * \
             active[ir:-csiz] * entropy[csiz:-csiz]
         rewards[-csiz:] += reward[-csiz:]
-        # print(reward.mean())
 
-    # print("csiz", csiz)
-    # print("conclu", rewards.mean())
     rewards[:-csiz] *= 4 * idx[:-csiz] - 2
-    # print("after", rewards[-csiz:].mean().item())
     agent.store_grad(rewards, grads_logp)
-    # print("size", rewards.shape)
     return rewards[-csiz:].mean().item(), sigma_t
 
 
-def evaluate(env, agent, g_t):
+def evaluate(env, agent, g_t, phrase, ref_agent=""):
     env.new_instance()
 
     csiz = env.bs_per_horizon
@@ -136,11 +128,14 @@ def evaluate(env, agent, g_t):
     for i in range(env.horizon):
         il, ir = (env.horizon - i) * csiz, (env.horizon + 1 - i) * csiz
 
-#collect_date s_sampler->refence_policy
         state = env.get_state()
-        s_agent = state[il:]
+        s_sampler, s_agent = state[:ir], state[il:]
 
-        a_env = env.get_reference_action()[:ir]
+        if phrase == "warmup" or ref_agent == "":
+            a_env = env.get_reference_action()[:ir]
+        else:
+            ref_agent.move_device(env.device)
+            a_env, _ = ref_agent.get_action(s_sampler)
         a_agent, entropy = agent.get_action(s_agent)
         id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
         idx[il:ir] = id
@@ -148,7 +143,6 @@ def evaluate(env, agent, g_t):
 
         action = torch.cat((a_env[:-csiz], ax, a_agent[csiz:]))
         reward, active = env.get_reward(action)
-#        print("ref_rew", reward.mean().item())
 
         log_prob, grad_logp = agent.query_sa(state[:ir], a_env)
         log_prob[log_prob < -agent.U] = -agent.U
@@ -177,7 +171,15 @@ def calc_log_kappa(sigma_t, sigma_star):
     st = U @ torch.diag(sqinv) @ U.T
 
     e = torch.symeig(st @ sigma_star @ st.T)[0]
-    return log(e[-1])
+    return log(e[-1])\
+
+
+
+def load_agent(loading_path, device):
+    package = torch.load(loading_path, map_location=device)
+    agent, envs, sampler = unpack_checkpoint(**package)
+
+    return agent, envs, sampler
 
 
 if __name__ == "__main__":
@@ -199,7 +201,6 @@ if __name__ == "__main__":
     sample_type, init_type, seed, phase_episode, save_episode, smooth_episode = unpack_config(
         **config)
     curriculum_params = unpack_config_REGISTRY[problem](**config)
-# SP: N_start, n_end
 
     assert phase_episode % save_episode == 0
     assert save_episode % smooth_episode == 0
@@ -325,6 +326,13 @@ if __name__ == "__main__":
     buffers = torch.zeros((len(labels), smooth_episode))
     save_buffers = torch.zeros((len(labels), save_episode))
 
+    if args.reference_agent is not None:
+        ref_enabled = True
+        ref_agent, ref_env, ref_sampler = load_agent(
+            args.reference_agent, args.device)
+    else:
+        ref_enabled = False
+
     for phase in range(len(curriculum_params)):
         warmup = (phase < len(curriculum_params) - 1)
         samp_a_unif = False if warmup else ()
@@ -359,11 +367,15 @@ if __name__ == "__main__":
         cur_phase_episode = phase_episode
 
         for episode in episode_range:
-            # print(episode)
             agent.zero_grad()
             reward, sigma_t = collect_data(env, sampler, samp_a_unif, agent)
             g_t = agent.update_param()
-            ref_reward, sigma_star, err_t = evaluate(env, agent, g_t)
+            if (ref_enabled):
+                ref_reward, sigma_star, err_t = evaluate(
+                    env, agent, g_t, prefix, ref_agent)
+            else:
+                ref_reward, sigma_star, err_t = evaluate(
+                    env, agent, g_t, prefix)
             log_kappa = calc_log_kappa(sigma_t, sigma_star)
 
             buf_idx = episode % smooth_episode

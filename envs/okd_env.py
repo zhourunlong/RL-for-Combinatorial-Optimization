@@ -78,7 +78,6 @@ class OKDEnv(BaseEnv):
         ract = self.active.clone()
         self.active *= (1 - win.double())  # * (1 - die.double())
         self.i += 1
-#        print(win)
         return rwd, ract
 
     def clean(self):
@@ -135,7 +134,6 @@ class OKDEnv(BaseEnv):
         x = np.linspace(0.02, 1, 50)
         X, Y = np.meshgrid(x, x, indexing="ij")
 
-        print(acc[:, :, 0, 0, 0])
         for t in range(9):
             ax = fig.add_subplot(3, 3, t + 1, projection='3d')
             ax.set_title("i/n = 0.%d" % (t + 1))
