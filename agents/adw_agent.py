@@ -2,7 +2,6 @@ from .base_agent import LogLinearAgent
 import torch
 import torch.nn.functional as F
 
-
 class ADWAgent(LogLinearAgent):
     def __init__(self, device, d0, lr, L, G, U, **kwargs):
         self.d0 = int(d0)
@@ -21,11 +20,8 @@ class ADWAgent(LogLinearAgent):
     def clear_params(self):
         self.theta = torch.zeros_like(self.theta)
 
-# new state: i/n & v_i/remaining_budget_i
     def get_phi_batch(self, states):
-        # self.m phis?
         bs = states.shape[0]
-#        self.m = self.m
         return_value = torch.empty(
             bs, self.d, 1, dtype=torch.double, device=self.device)
         for j in range(0, self.m):
@@ -43,7 +39,6 @@ class ADWAgent(LogLinearAgent):
 
     def get_action(self, states):
         params = self.get_logits(states)
- #       print("pa", params.shape)
         params = torch.cat([params, torch.zeros_like(params[:, 0:1])], dim=-1)
 
         probs = F.softmax(params, dim=-1)
@@ -63,20 +58,13 @@ class ADWAgent(LogLinearAgent):
         log_probs = F.log_softmax(params, dim=-1)
         actions = actions.long().view(states.shape[0], 1)
 
-#        print("act ", actions)
-#        print("pbs ", probs)
         range = torch.arange(
             0, phi.shape[0], dtype=torch.long, device=self.device)
         range_2 = torch.arange(
             0, phi.shape[2], dtype=torch.long, device=self.device)
         prob = probs.gather(1, actions).view(-1,)
-#        print("prob", prob)
-#        print("pb ", prob)
-#        print("shape actions", actions.shape)
         single_action = actions.squeeze(1)
 
-#        print("shape phi", phi[range, :, single_action])
-#        print("prob shape", (1 - prob).view(-1, 1).shape)
         log_prob = log_probs.gather(1, actions).view(-1,)
         grad_logp = torch.empty(
             phi.shape[0], phi.shape[1], dtype=torch.double, device=self.device)
