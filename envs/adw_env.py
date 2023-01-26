@@ -31,10 +31,14 @@ class ADWEnv(BaseEnv):
         if self.type == "uniform":
             self.Fv = torch.ones(
                 (self.gran,), dtype=torch.double, device=self.device)
+        elif self.type == "random":
+            self.Fv = torch.rand(
+                (self.gran,), dtype=torch.double, device=self.device)
         else:
             self.Fv = torch.rand(
                 (self.gran,), dtype=torch.double, device=self.device)
         self.new_instance()
+
 #        self.calc_ref_r()
         self.clean()
 
@@ -48,12 +52,18 @@ class ADWEnv(BaseEnv):
         return self.m + 1
 
     def sample_distr(self, F):
-        interval = torch.multinomial(
-            F, self.bs * self.n * (self.m), replacement=True)
-        sample = interval.double() + torch.rand(self.bs * self.n * (self.m),
-                                                dtype=torch.double, device=self.device)
-        return sample.view(self.bs, self.n, self.m) / self.gran
-
+        if (self.type != "special"):
+            interval = torch.multinomial(
+                F, self.bs * self.n * (self.m), replacement=True)
+            sample = interval.double() + torch.rand(self.bs * self.n * (self.m),
+                                                    dtype=torch.double, device=self.device)
+            return sample.view(self.bs, self.n, self.m) / self.gran
+        else:
+            sample = torch.rand(self.bs * self.n * self.m,
+                                dtype=torch.double, device=self.device)
+            sample = 0.4 * (sample < 0.9) + \
+                (4 * (sample - 0.9) + 0.6) * (sample >= 0.9)
+            return sample.view(self.bs, self.n, self.m)
 # sum_v -> value each advertiser spent
 # v -> value i,j
 # total_revenue -> total_revenue
@@ -92,9 +102,9 @@ class ADWEnv(BaseEnv):
         # 0: reject every advertiser
         # 1-m: {advertiser_action}
     def get_reference_action(self):
-        # return torch.argmax((self.v[:, self.i, :] * (math.e ** (self.sum_v / self.B))), 1).double()
+        return torch.argmax((self.v[:, self.i, :] * (math.e ** (self.sum_v / self.B))), 1).double()
         # return torch.argmax(1 / (0.5 - self.v[:, self.i, :]) * ((self.B - self.sum_v) > self.v[:, self.i, :]), 1).double()
-        return torch.argmax((self.v[:, self.i, :] / (self.B - self.sum_v)) * (self.v[:, self.i, :] <= (self.B - self.sum_v)), 1).double()
+        # return torch.argmax((self.v[:, self.i, :] / (self.B - self.sum_v)) * (self.v[:, self.i, :] <= (self.B - self.sum_v)), 1).double()
         #    return (self.v[:, self.i] < self.r * self.s[:, self.i]).double()
 
         # Get Reward

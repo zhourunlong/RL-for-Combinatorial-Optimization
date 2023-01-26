@@ -237,7 +237,8 @@ def plot(problem_name, problem_run, max_sample=None):
     print(fn)
 
 if __name__ == "__main__":
-    plot("SP", "uniform", int(3e8))
+    plot("ADW", "19260817-uniform", int(1.5e7))
+    plot("ADW", "19260817-special", int(3.2e7))
     
     for problem_name, problem_run_dict in PROBLEMS.items():
         for problem_run in problem_run_dict.keys():

@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import shutil
+from weakref import ref
 import numpy as np
 import torch
 import random
@@ -24,6 +25,7 @@ def get_args():
     parser.add_argument("--config", default="config.ini", type=str)
     parser.add_argument("--load-path", default=None, type=str)
     parser.add_argument("--override-phase-episode", default=None, type=int)
+    parser.add_argument("--reference-agent", default=None, type=str)
     return parser.parse_args()
 
 
@@ -122,7 +124,7 @@ def collect_data(env, sampler, samp_a_unif, agent):
     return rewards[-csiz:].mean().item(), sigma_t
 
 
-def evaluate(env, agent, g_t):
+def evaluate(env, agent, g_t, ref_agent, phrase):
     env.new_instance()
 
     csiz = env.bs_per_horizon
@@ -136,17 +138,24 @@ def evaluate(env, agent, g_t):
     for i in range(env.horizon):
         il, ir = (env.horizon - i) * csiz, (env.horizon + 1 - i) * csiz
 
-#collect_date s_sampler->refence_policy
+# collect_date s_sampler->refence_policy
         state = env.get_state()
-        s_agent = state[il:]
+        s_sampler, s_agent = state[:ir], state[il:]
 
-        a_env = env.get_reference_action()[:ir]
+#        print(s_agent.shape)
+#        print(ref_sampler.shape)
+        ref_agent.move_device(env.device)
+        if phrase == "warmup":
+            a_env = env.get_reference_action()[:ir]
+        else:
+            a_env, _ = ref_agent.get_action(s_sampler)
         a_agent, entropy = agent.get_action(s_agent)
         id = torch.randint(2, (csiz,), dtype=torch.double, device=env.device)
         idx[il:ir] = id
         ax = id * a_env[-csiz:] + (1 - id) * a_agent[:csiz]
 
         action = torch.cat((a_env[:-csiz], ax, a_agent[csiz:]))
+#        print(action)
         reward, active = env.get_reward(action)
 #        print("ref_rew", reward.mean().item())
 
@@ -177,7 +186,15 @@ def calc_log_kappa(sigma_t, sigma_star):
     st = U @ torch.diag(sqinv) @ U.T
 
     e = torch.symeig(st @ sigma_star @ st.T)[0]
-    return log(e[-1])
+    return log(e[-1])\
+
+
+
+def load_agent(loading_path, device):
+    package = torch.load(loading_path, map_location=device)
+    agent, envs, sampler = unpack_checkpoint(**package)
+
+    return agent, envs, sampler
 
 
 if __name__ == "__main__":
@@ -325,6 +342,10 @@ if __name__ == "__main__":
     buffers = torch.zeros((len(labels), smooth_episode))
     save_buffers = torch.zeros((len(labels), save_episode))
 
+    if args.reference_agent is not None:
+        ref_agent, ref_env, ref_sampler = load_agent(
+            args.reference_agent, args.device)
+
     for phase in range(len(curriculum_params)):
         warmup = (phase < len(curriculum_params) - 1)
         samp_a_unif = False if warmup else ()
@@ -363,7 +384,8 @@ if __name__ == "__main__":
             agent.zero_grad()
             reward, sigma_t = collect_data(env, sampler, samp_a_unif, agent)
             g_t = agent.update_param()
-            ref_reward, sigma_star, err_t = evaluate(env, agent, g_t)
+            ref_reward, sigma_star, err_t = evaluate(
+                env, agent, g_t, ref_agent, prefix)
             log_kappa = calc_log_kappa(sigma_t, sigma_star)
 
             buf_idx = episode % smooth_episode
